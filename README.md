@@ -84,6 +84,7 @@ Common environment variables:
 - `AUTOTRADE_DB_FILE`: SQLite file, default `autotrade.db`
 - `DATABASE_URL`: Railway Postgres connection URL, used automatically when present
 - `AUTOTRADE_DATABASE_URL`: explicit Postgres override; takes precedence over `DATABASE_URL`
+- `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`: accepted when a platform exposes Postgres as component variables instead of a URL
 - `AUTOTRADE_REQUIRE_DATABASE_URL`: set to `1` to forbid SQLite fallback
 - `AUTOTRADE_ADMIN_PASSWORD`: admin dashboard password
 - `AUTOTRADE_DEFAULT_DEALER`: default dealer slug, default `south-florida-demo`

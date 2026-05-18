@@ -13,7 +13,9 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+import time
 from typing import Any, Iterator
+from urllib.parse import quote
 
 try:  # psycopg is only required when DATABASE_URL points at Postgres.
     import psycopg
@@ -33,9 +35,9 @@ def connect(db_path: Path) -> Iterator[Any]:
     if database_url:
         if psycopg is None:
             raise RuntimeError(
-                "Postgres DATABASE_URL is configured, but psycopg is not installed."
+                "Postgres database settings are configured, but psycopg is not installed."
             )
-        raw_conn = psycopg.connect(database_url, row_factory=dict_row)
+        raw_conn = _connect_postgres(database_url)
         conn = _PostgresConnection(raw_conn)
     else:
         if _database_url_required():
@@ -97,12 +99,53 @@ class _PostgresConnection:
 
 
 def _postgres_database_url() -> str:
-    database_url = (
-        os.getenv("AUTOTRADE_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
-    ).strip()
+    database_url = _first_env(
+        "AUTOTRADE_DATABASE_URL",
+        "DATABASE_URL",
+        "DATABASE_PRIVATE_URL",
+        "DATABASE_PUBLIC_URL",
+        "POSTGRES_URL",
+    )
     if database_url.startswith(("postgres://", "postgresql://")):
         return database_url
+    return _postgres_url_from_pg_vars()
+
+
+def _first_env(*names: str) -> str:
+    for name in names:
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value
     return ""
+
+
+def _postgres_url_from_pg_vars() -> str:
+    host = (os.getenv("PGHOST") or "").strip()
+    user = (os.getenv("PGUSER") or "").strip()
+    password = os.getenv("PGPASSWORD") or ""
+    database = (os.getenv("PGDATABASE") or "").strip()
+    if not all([host, user, database]):
+        return ""
+    port = (os.getenv("PGPORT") or "5432").strip()
+    auth = quote(user, safe="")
+    if password:
+        auth = f"{auth}:{quote(password, safe='')}"
+    return f"postgresql://{auth}@{host}:{port}/{quote(database, safe='')}"
+
+
+def _connect_postgres(database_url: str) -> Any:
+    attempts = int(os.getenv("AUTOTRADE_DB_CONNECT_RETRIES", "8"))
+    delay = float(os.getenv("AUTOTRADE_DB_CONNECT_RETRY_SECONDS", "1.5"))
+    last_error: Exception | None = None
+    for attempt in range(max(attempts, 1)):
+        try:
+            return psycopg.connect(database_url, row_factory=dict_row)
+        except psycopg.OperationalError as exc:
+            last_error = exc
+            if attempt >= attempts - 1:
+                break
+            time.sleep(delay)
+    raise RuntimeError("Could not connect to the configured Postgres database.") from last_error
 
 
 def _database_url_required() -> bool:

@@ -19,6 +19,14 @@ from autotrade_pro.database import (
 def _allow_sqlite_for_tests(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("AUTOTRADE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_PRIVATE_URL", raising=False)
+    monkeypatch.delenv("DATABASE_PUBLIC_URL", raising=False)
+    monkeypatch.delenv("POSTGRES_URL", raising=False)
+    monkeypatch.delenv("PGHOST", raising=False)
+    monkeypatch.delenv("PGPORT", raising=False)
+    monkeypatch.delenv("PGUSER", raising=False)
+    monkeypatch.delenv("PGPASSWORD", raising=False)
+    monkeypatch.delenv("PGDATABASE", raising=False)
     monkeypatch.delenv("AUTOTRADE_REQUIRE_DATABASE_URL", raising=False)
 
 
@@ -129,6 +137,17 @@ def test_database_backend_uses_postgres_url_when_configured(monkeypatch):
     assert database_backend() == "postgresql"
     monkeypatch.delenv("DATABASE_URL")
     assert database_backend() == "sqlite"
+
+
+def test_database_backend_uses_pg_component_variables(monkeypatch):
+    monkeypatch.setenv("AUTOTRADE_REQUIRE_DATABASE_URL", "1")
+    monkeypatch.setenv("PGHOST", "postgres.railway.internal")
+    monkeypatch.setenv("PGPORT", "5432")
+    monkeypatch.setenv("PGUSER", "postgres")
+    monkeypatch.setenv("PGPASSWORD", "secret")
+    monkeypatch.setenv("PGDATABASE", "railway")
+
+    assert database_backend() == "postgresql"
 
 
 def test_required_database_url_blocks_sqlite_fallback(tmp_path, monkeypatch):
