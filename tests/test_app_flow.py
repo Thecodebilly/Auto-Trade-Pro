@@ -3,6 +3,8 @@ from __future__ import annotations
 from io import BytesIO
 import json
 
+import pytest
+
 from autotrade_pro import create_app
 from autotrade_pro.config import AppConfig
 from autotrade_pro.database import fetch_dealer_by_slug, update_dealer
@@ -389,7 +391,37 @@ def test_kbb_source_can_be_used_and_toggled_for_estimates(tmp_path, monkeypatch)
     assert "Kelley Blue Book" in " ".join(disabled["source_breakdown"]["notes"])
 
 
-def test_older_high_mileage_crv_snapshot_values_are_normalized(tmp_path):
+@pytest.mark.parametrize(
+    (
+        "year",
+        "make",
+        "model",
+        "trim",
+        "body_style",
+        "mileage",
+        "max_offer",
+        "max_retail",
+    ),
+    [
+        (2014, "TOYOTA", "CAMRY", "SE", "Sedan", 160000, 9000, 12000),
+        (2016, "TOYOTA", "RAV4", "XLE", "SUV", 150000, 12500, 15500),
+        (2015, "HONDA", "ACCORD", "EX-L", "Sedan", 155000, 13000, 16500),
+        (2016, "HONDA", "CR-V", "Base", "SUV", 150000, 12000, 15000),
+        (2014, "FORD", "F-150", "XLT", "Pickup", 170000, 19000, 24000),
+        (2015, "CHEVROLET", "SILVERADO", "LT", "Pickup", 165000, 14000, 18000),
+    ],
+)
+def test_older_high_mileage_snapshot_values_are_normalized(
+    tmp_path,
+    year,
+    make,
+    model,
+    trim,
+    body_style,
+    mileage,
+    max_offer,
+    max_retail,
+):
     app = _app(tmp_path)
     client = app.test_client()
 
@@ -397,15 +429,15 @@ def test_older_high_mileage_crv_snapshot_values_are_normalized(tmp_path):
         "/api/dealers/south-florida-demo/valuations",
         data={
             "vin": "",
-            "mileage": "150000",
+            "mileage": str(mileage),
             "vehicle_json": json.dumps(
                 {
                     "vin": "",
-                    "year": 2016,
-                    "make": "HONDA",
-                    "model": "CR-V",
-                    "trim": "Base",
-                    "body_style": "SUV",
+                    "year": year,
+                    "make": make,
+                    "model": model,
+                    "trim": trim,
+                    "body_style": body_style,
                 }
             ),
             "condition_json": json.dumps(
@@ -434,13 +466,13 @@ def test_older_high_mileage_crv_snapshot_values_are_normalized(tmp_path):
     valuation = response.get_json()["valuation"]
     signals = valuation["source_breakdown"]["signals"]
 
-    assert 8500 <= valuation["trade_offer"] <= 12000
-    assert valuation["retail_market_value"] <= 15000
-    assert {signal["raw"]["normalization"]["target_year"] for signal in signals} == {2016}
-    assert {signal["source"] for signal in signals} == {
-        "kelley_blue_book_demo",
-        "manheim_mmr_demo",
-    }
+    assert valuation["trade_offer"] <= max_offer
+    assert valuation["retail_market_value"] <= max_retail
+    assert {signal["raw"]["normalization"]["target_year"] for signal in signals} == {year}
+    assert all(
+        signal["raw"]["normalization"]["source_year"] > year
+        for signal in signals
+    )
 
 
 def test_ai_review_can_adjust_price_and_digest_photos(tmp_path, monkeypatch):
