@@ -149,7 +149,7 @@ def _connect_postgres(database_url: str) -> Any:
 
 
 def _database_url_required() -> bool:
-    return _env_bool("AUTOTRADE_REQUIRE_DATABASE_URL", False)
+    return _env_bool("AUTOTRADE_REQUIRE_DATABASE_URL", False) or _running_on_railway()
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -157,6 +157,17 @@ def _env_bool(name: str, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _running_on_railway() -> bool:
+    return any(
+        os.getenv(name)
+        for name in (
+            "RAILWAY_SERVICE_ID",
+            "RAILWAY_DEPLOYMENT_ID",
+            "RAILWAY_PROJECT_ID",
+        )
+    )
 
 
 def _postgres_sql(sql: str) -> str:

@@ -28,6 +28,9 @@ def _allow_sqlite_for_tests(monkeypatch):
     monkeypatch.delenv("PGPASSWORD", raising=False)
     monkeypatch.delenv("PGDATABASE", raising=False)
     monkeypatch.delenv("AUTOTRADE_REQUIRE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("RAILWAY_SERVICE_ID", raising=False)
+    monkeypatch.delenv("RAILWAY_DEPLOYMENT_ID", raising=False)
+    monkeypatch.delenv("RAILWAY_PROJECT_ID", raising=False)
 
 
 def _app(tmp_path):
@@ -154,6 +157,17 @@ def test_required_database_url_blocks_sqlite_fallback(tmp_path, monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("AUTOTRADE_DATABASE_URL", raising=False)
     monkeypatch.setenv("AUTOTRADE_REQUIRE_DATABASE_URL", "1")
+
+    assert database_backend() == "postgresql-required"
+    with pytest.raises(RuntimeError, match="Postgres database URL is required"):
+        with connect(tmp_path / "autotrade.db"):
+            pass
+
+
+def test_railway_environment_blocks_sqlite_fallback(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTOTRADE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("RAILWAY_SERVICE_ID", "service-id")
 
     assert database_backend() == "postgresql-required"
     with pytest.raises(RuntimeError, match="Postgres database URL is required"):
