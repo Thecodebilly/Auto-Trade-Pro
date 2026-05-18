@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  autotrade-pro:
+    build: .
+    container_name: autotrade-pro
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - AUTOTRADE_DATA_DIR=/app/data
+      - AUTOTRADE_ADMIN_PASSWORD=${AUTOTRADE_ADMIN_PASSWORD:-AutoTrade123!}
+      - AUTOTRADE_MARKET_REGION=${AUTOTRADE_MARKET_REGION:-south_florida}
+    restart: unless-stopped

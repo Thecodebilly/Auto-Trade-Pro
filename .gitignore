@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment & secrets
+.env
+.env.*
+Login-info.md
+
+# Database & runtime data
+*.sqlite3
+*.db
+*.log
+data/*.db
+data/*.csv
+data/*.log
+data/*.json
+data/uploads/
+data/vehicle_uploads/
+autotrade-pro.zip
+
+# Test & coverage artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Local tooling
+.claude/
+.vscode/
+*.HEIC
+*.heic
+
+# OS
+.DS_Store
+Thumbs.db

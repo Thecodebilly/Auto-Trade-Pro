@@ -1,0 +1,832 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ dealer.name }} | AutoTrade Pro</title>
+  <style>
+    :root {
+      --primary: {{ dealer.primary_color }};
+      --accent: {{ dealer.accent_color }};
+      --ink: #17212b;
+      --muted: #607080;
+      --line: #d8e0e7;
+      --surface: #ffffff;
+      --soft: #f3f6f8;
+      --good: #227c5a;
+      --warn: #b86b00;
+      --shadow: 0 18px 45px rgba(23, 33, 43, .14);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #eef3f6;
+    }
+    button, input, select, textarea { font: inherit; }
+    button {
+      border: 0;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 6px;
+      padding: 10px 16px;
+      cursor: pointer;
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    button:active { transform: translateY(1px); }
+    .primary {
+      color: #fff;
+      background: var(--primary);
+      box-shadow: 0 10px 18px rgba(24, 78, 119, .22);
+    }
+    .secondary { color: var(--primary); background: #e7eef3; }
+    .ghost { color: var(--ink); background: transparent; border: 1px solid var(--line); }
+    .icon-only { width: 44px; padding: 0; }
+    .shell {
+      min-height: 100vh;
+      background:
+        linear-gradient(90deg, rgba(12, 24, 35, .78), rgba(12, 24, 35, .36) 48%, rgba(12, 24, 35, .06)),
+        url('{{ dealer.hero_image_url }}') center/cover no-repeat;
+    }
+    .topbar {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px clamp(18px, 4vw, 56px);
+      color: #fff;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 6px;
+      background: #fff;
+      color: var(--primary);
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      flex: none;
+      overflow: hidden;
+    }
+    .logo img { width: 100%; height: 100%; object-fit: cover; }
+    .brand-title { font-weight: 800; line-height: 1.1; }
+    .brand-sub { font-size: 13px; opacity: .78; margin-top: 2px; }
+    .dealer-contact {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .workspace {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 24px;
+      align-items: stretch;
+      padding: 28px 0 48px;
+    }
+    .intro {
+      color: #fff;
+      padding: 26px 0 8px;
+    }
+    h1 {
+      margin: 0;
+      font-size: clamp(36px, 6vw, 72px);
+      line-height: .96;
+      letter-spacing: 0;
+      max-width: 760px;
+    }
+    .intro p {
+      font-size: 18px;
+      line-height: 1.55;
+      max-width: 680px;
+      color: rgba(255, 255, 255, .86);
+      margin: 18px 0 0;
+    }
+    .app-panel, .side-panel {
+      background: rgba(255, 255, 255, .96);
+      backdrop-filter: blur(12px);
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255,255,255,.7);
+    }
+    .app-panel { border-radius: 8px; overflow: hidden; }
+    .stepbar {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line);
+      background: #f7fafb;
+    }
+    .step {
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-right: 1px solid var(--line);
+      color: #6b7783;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .step:last-child { border-right: 0; }
+    .step.active { color: #fff; background: var(--primary); }
+    .step.done { color: var(--primary); background: #eaf4ef; }
+    .panel-body { padding: clamp(20px, 4vw, 34px); min-height: 520px; }
+    .screen { display: none; }
+    .screen.active { display: block; animation: lift .18s ease-out; }
+    @keyframes lift { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .screen h2 {
+      margin: 0 0 10px;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+    .screen-note { color: var(--muted); margin: 0 0 24px; line-height: 1.5; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .field { display: flex; flex-direction: column; gap: 7px; }
+    label { font-size: 13px; color: #45525f; font-weight: 800; }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 12px 13px;
+      min-height: 46px;
+      outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(24, 78, 119, .16); }
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 28px;
+    }
+    .actions .right { margin-left: auto; display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+    .vehicle-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin: 18px 0 26px;
+    }
+    .metric {
+      padding: 14px;
+      background: var(--soft);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      min-width: 0;
+    }
+    .metric span { display: block; color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 5px; font-size: 18px; overflow-wrap: anywhere; }
+    .choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .choice-group { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+    .choice-group legend { font-weight: 850; color: #344351; margin-bottom: 10px; }
+    .radio-row { display: grid; gap: 8px; }
+    .radio-row label {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 650;
+      color: #2d3843;
+      min-height: 30px;
+    }
+    .radio-row input { width: auto; min-height: auto; }
+    .photo-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .photo-slot {
+      border: 1px dashed #9cafbd;
+      border-radius: 8px;
+      background: #fff;
+      min-height: 142px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .photo-slot input { padding: 8px; min-height: 0; font-size: 12px; }
+    .incentive-list { display: grid; gap: 12px; }
+    .incentive {
+      display: grid;
+      grid-template-columns: 38px 1fr auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .incentive.locked { opacity: .48; }
+    .badge {
+      width: 38px;
+      height: 38px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      background: #e9f2f7;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: #f7f0e5;
+      color: #774800;
+      font-size: 12px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .offer-band {
+      margin: 8px 0 22px;
+      padding: 22px;
+      border-radius: 8px;
+      border: 1px solid #bbd7ca;
+      background: #eff9f4;
+    }
+    .offer-value {
+      font-size: clamp(42px, 7vw, 68px);
+      line-height: .95;
+      color: var(--good);
+      font-weight: 900;
+      letter-spacing: 0;
+    }
+    .offer-meta {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+      color: #314335;
+      font-weight: 750;
+    }
+    .side-panel {
+      border-radius: 8px;
+      padding: 20px;
+      align-self: start;
+      position: sticky;
+      top: 18px;
+    }
+    .side-panel h2 {
+      margin: 0 0 14px;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+    .mini-list { display: grid; gap: 10px; }
+    .mini-item {
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+    .mini-item strong { display: block; }
+    .mini-item span { color: var(--muted); font-size: 13px; }
+    .status-line {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      background: #f7fafb;
+      color: #40505f;
+      font-weight: 700;
+      min-height: 46px;
+    }
+    .error { color: #9d2b2b; }
+    .success { color: var(--good); }
+    .spinner {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,.4);
+      border-top-color: #fff;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (max-width: 980px) {
+      .workspace { grid-template-columns: 1fr; padding-top: 10px; }
+      .side-panel { position: static; }
+      .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 720px) {
+      .topbar { align-items: flex-start; gap: 12px; flex-direction: column; }
+      .dealer-contact { flex-wrap: wrap; white-space: normal; }
+      .stepbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .step { height: 46px; font-size: 12px; }
+      .grid, .choice-grid, .vehicle-strip { grid-template-columns: 1fr; }
+      .photo-grid { grid-template-columns: 1fr; }
+      .actions { flex-direction: column; align-items: stretch; }
+      .actions .right, .actions button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">
+          {% if dealer.logo_url %}
+            <img src="{{ dealer.logo_url }}" alt="">
+          {% else %}
+            ATP
+          {% endif %}
+        </div>
+        <div>
+          <div class="brand-title">{{ dealer.name }}</div>
+          <div class="brand-sub">AutoTrade Pro</div>
+        </div>
+      </div>
+      <div class="dealer-contact">
+        <span>{{ dealer.phone }}</span>
+        <span>{{ dealer.city }}, {{ dealer.state }}</span>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div>
+        <div class="intro">
+          <h1>Trade-In Valuation</h1>
+          <p>Get a market-backed estimate, unlock dealership incentives, and reserve an appraisal appointment while your offer window is active.</p>
+        </div>
+        <div class="app-panel">
+          <div class="stepbar" id="stepbar"></div>
+          <div class="panel-body">
+            <section class="screen active" data-screen="vin">
+              <h2>Vehicle VIN</h2>
+              <p class="screen-note">Start with the 17-character VIN so the vehicle can be decoded before mileage and condition are scored.</p>
+              <div class="grid">
+                <div class="field">
+                  <label for="vin">VIN</label>
+                  <input id="vin" maxlength="17" autocomplete="off" placeholder="1HGCV1F30NA000000">
+                </div>
+                <div class="field">
+                  <label for="zip">ZIP code</label>
+                  <input id="zip" inputmode="numeric" maxlength="10" placeholder="{{ dealer.postal_code }}">
+                </div>
+              </div>
+              <div class="status-line" id="vinStatus">Ready for VIN decode.</div>
+              <div class="actions">
+                <span></span>
+                <div class="right">
+                  <button class="secondary" id="decodeBtn" type="button"><i data-lucide="scan-line"></i> Decode</button>
+                  <button class="primary" type="button" data-next><i data-lucide="arrow-right"></i> Continue</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="mileage">
+              <h2>Mileage</h2>
+              <p class="screen-note">Confirm the decoded vehicle and add the current odometer reading.</p>
+              <div class="vehicle-strip" id="vehicleStrip"></div>
+              <div class="grid">
+                <div class="field">
+                  <label for="mileage">Mileage</label>
+                  <input id="mileage" inputmode="numeric" placeholder="45250">
+                </div>
+                <div class="field">
+                  <label for="year">Year</label>
+                  <input id="year" inputmode="numeric">
+                </div>
+                <div class="field">
+                  <label for="make">Make</label>
+                  <input id="make">
+                </div>
+                <div class="field">
+                  <label for="model">Model</label>
+                  <input id="model">
+                </div>
+                <div class="field">
+                  <label for="trim">Trim</label>
+                  <input id="trim">
+                </div>
+                <div class="field">
+                  <label for="bodyStyle">Body style</label>
+                  <input id="bodyStyle">
+                </div>
+              </div>
+              <div class="actions">
+                <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
+                <div class="right"><button class="primary" type="button" data-next><i data-lucide="arrow-right"></i> Continue</button></div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="condition">
+              <h2>Condition</h2>
+              <p class="screen-note">These answers carry the highest valuation weight and shape the reconditioning reserve.</p>
+              <div class="choice-grid" id="conditionForm"></div>
+              <div class="actions">
+                <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
+                <div class="right"><button class="primary" type="button" data-next><i data-lucide="arrow-right"></i> Continue</button></div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="photos">
+              <h2>Photos</h2>
+              <p class="screen-note">Exterior, interior, dashboard, and tire photos improve data quality before the offer is calculated.</p>
+              <div class="photo-grid" id="photoGrid"></div>
+              <div class="actions">
+                <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
+                <div class="right"><button class="primary" type="button" data-next><i data-lucide="arrow-right"></i> Continue</button></div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="incentives">
+              <h2>Unlocked Incentives</h2>
+              <p class="screen-note">Your active incentives move forward with the appraisal and appointment confirmation.</p>
+              <div class="incentive-list" id="mainIncentives"></div>
+              <div class="actions">
+                <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
+                <div class="right"><button class="primary" type="button" data-next><i data-lucide="arrow-right"></i> Continue</button></div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="valuation">
+              <h2>Trade Valuation</h2>
+              <p class="screen-note">The valuation engine blends condition, wholesale auction history, regional data, and retail comparable caps.</p>
+              <div class="offer-band" id="offerBand" hidden>
+                <div class="offer-value" id="offerValue">$0</div>
+                <div class="offer-meta" id="offerMeta"></div>
+              </div>
+              <div class="status-line" id="valuationStatus">Ready to calculate.</div>
+              <div class="actions">
+                <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
+                <div class="right">
+                  <button class="primary" id="calculateBtn" type="button"><i data-lucide="calculator"></i> Calculate Offer</button>
+                  <button class="secondary" id="toAppointmentBtn" type="button" hidden><i data-lucide="calendar-plus"></i> Book Appointment</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="appointment">
+              <h2>Appointment Booking</h2>
+              <p class="screen-note">Reserve a showroom appraisal time and attach contact details to the lead record.</p>
+              <div class="grid">
+                <div class="field"><label for="customerName">Name</label><input id="customerName" autocomplete="name"></div>
+                <div class="field"><label for="customerEmail">Email</label><input id="customerEmail" type="email" autocomplete="email"></div>
+                <div class="field"><label for="customerPhone">Phone</label><input id="customerPhone" autocomplete="tel"></div>
+                <div class="field"><label for="appointmentDate">Date</label><input id="appointmentDate" type="date"></div>
+                <div class="field"><label for="appointmentTime">Time</label><select id="appointmentTime"></select></div>
+                <div class="field"><label for="appointmentNotes">Notes</label><input id="appointmentNotes" placeholder="Any timing or vehicle notes"></div>
+              </div>
+              <label style="display:flex; gap:9px; align-items:center; margin-top:16px; font-weight:700;">
+                <input id="marketingConsent" type="checkbox" style="width:auto; min-height:auto;"> Send updates about this trade and appointment
+              </label>
+              <div class="status-line" id="appointmentStatus">Choose a date and time.</div>
+              <div class="actions">
+                <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
+                <div class="right"><button class="primary" id="bookBtn" type="button"><i data-lucide="check"></i> Confirm Appointment</button></div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="confirmation">
+              <h2>Confirmation</h2>
+              <div class="offer-band">
+                <div class="offer-value" id="confirmationValue">$0</div>
+                <div class="offer-meta" id="confirmationMeta"></div>
+              </div>
+              <div class="incentive-list" id="confirmationIncentives"></div>
+              <div class="actions">
+                <button class="secondary" type="button" onclick="window.print()"><i data-lucide="printer"></i> Print</button>
+                <div class="right"><a class="primary" style="text-decoration:none; min-height:44px; display:inline-flex; align-items:center; padding:10px 16px; border-radius:6px; color:#fff;" href="/d/{{ dealer.slug }}"><i data-lucide="rotate-ccw"></i> New Valuation</a></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <aside class="side-panel">
+        <h2>Progressive Value</h2>
+        <div class="mini-list" id="sideIncentives"></div>
+        <div class="status-line" id="sideStatus">VIN pending</div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    window.AUTOTRADE = {
+      dealer: {{ dealer|tojson }},
+      incentives: {{ incentives|tojson }}
+    };
+  </script>
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script>
+    const steps = ["vin", "mileage", "condition", "photos", "incentives", "valuation", "appointment", "confirmation"];
+    const stepLabels = ["VIN", "Mileage", "Condition", "Photos", "Perks", "Offer", "Booking", "Done"];
+    const revealRank = { vin: 0, mileage: 1, condition: 2, photos: 3, offer: 5 };
+    const state = {
+      step: 0,
+      vehicle: {},
+      valuation: null,
+      appointment: null
+    };
+    const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+
+    const conditionGroups = [
+      ["dents", "Any dents or dings larger than a quarter?", [["none", "No"], ["small", "One small area"], ["multiple", "Multiple areas"], ["major", "Major damage"]]],
+      ["interior", "Interior rips or tears?", [["clean", "No"], ["wear", "Normal wear"], ["tears", "Some tears"], ["heavy_damage", "Heavy damage"]]],
+      ["warning_lights", "Mechanical warning lights?", [["none", "None"], ["service", "Service light"], ["check_engine", "Check engine"], ["multiple", "Multiple lights"]]],
+      ["tires", "When were tires last replaced?", [["0_6", "0-6 months"], ["7_18", "7-18 months"], ["19_36", "19-36 months"], ["over_36", "Over 36 months"], ["unknown", "Not sure"]]],
+      ["brakes", "When were brakes last replaced?", [["0_6", "0-6 months"], ["7_18", "7-18 months"], ["19_36", "19-36 months"], ["over_36", "Over 36 months"], ["unknown", "Not sure"]]],
+      ["oil_change", "When was the last oil change?", [["0_3", "0-3 months"], ["3_6", "3-6 months"], ["6_12", "6-12 months"], ["over_12", "Over 12 months"], ["unknown", "Not sure"]]]
+    ];
+    const photoSlots = [
+      ["front", "Front exterior"],
+      ["rear", "Rear exterior"],
+      ["interior", "Interior"],
+      ["dash", "Dashboard"],
+      ["tires", "Tires"]
+    ];
+
+    function init() {
+      document.getElementById("stepbar").innerHTML = steps.map((step, index) => `<div class="step" data-step="${index}">${stepLabels[index]}</div>`).join("");
+      document.querySelectorAll("[data-next]").forEach(button => button.addEventListener("click", next));
+      document.querySelectorAll("[data-prev]").forEach(button => button.addEventListener("click", prev));
+      document.getElementById("decodeBtn").addEventListener("click", decodeVin);
+      document.getElementById("calculateBtn").addEventListener("click", calculateOffer);
+      document.getElementById("toAppointmentBtn").addEventListener("click", () => go(6));
+      document.getElementById("bookBtn").addEventListener("click", bookAppointment);
+      renderCondition();
+      renderPhotoSlots();
+      renderTimes();
+      update();
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function renderCondition() {
+      document.getElementById("conditionForm").innerHTML = conditionGroups.map(([name, legend, options]) => `
+        <fieldset class="choice-group">
+          <legend>${legend}</legend>
+          <div class="radio-row">
+            ${options.map(([value, label], index) => `
+              <label><input type="radio" name="${name}" value="${value}" ${index === 0 ? "checked" : ""}> ${label}</label>
+            `).join("")}
+          </div>
+        </fieldset>
+      `).join("");
+    }
+
+    function renderPhotoSlots() {
+      document.getElementById("photoGrid").innerHTML = photoSlots.map(([key, label]) => `
+        <label class="photo-slot">
+          <strong>${label}</strong>
+          <span style="font-size:12px; color:var(--muted);">Image upload</span>
+          <input type="file" accept="image/*" data-photo="${key}">
+        </label>
+      `).join("");
+    }
+
+    function renderTimes() {
+      const times = ["09:00 AM", "10:00 AM", "11:00 AM", "01:00 PM", "02:00 PM", "03:00 PM", "04:00 PM"];
+      document.getElementById("appointmentTime").innerHTML = times.map(time => `<option value="${time}">${time}</option>`).join("");
+      document.getElementById("appointmentDate").min = new Date().toISOString().slice(0, 10);
+    }
+
+    async function decodeVin() {
+      const vin = document.getElementById("vin").value.trim().toUpperCase();
+      const status = document.getElementById("vinStatus");
+      status.className = "status-line";
+      status.textContent = "Decoding VIN...";
+      try {
+        const response = await fetch(`/api/dealers/${window.AUTOTRADE.dealer.slug}/decode-vin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vin })
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "VIN decode failed.");
+        state.vehicle = payload.vehicle;
+        ["year", "make", "model", "trim"].forEach(key => document.getElementById(key).value = state.vehicle[key] || "");
+        document.getElementById("bodyStyle").value = state.vehicle.body_style || "";
+        status.className = "status-line success";
+        status.textContent = vehicleName(state.vehicle) || "VIN decoded.";
+        renderVehicleStrip();
+      } catch (error) {
+        status.className = "status-line error";
+        status.textContent = error.message;
+      }
+    }
+
+    function next() {
+      if (!validateStep()) return;
+      go(Math.min(steps.length - 1, state.step + 1));
+    }
+
+    function prev() {
+      go(Math.max(0, state.step - 1));
+    }
+
+    function go(index) {
+      state.step = index;
+      update();
+    }
+
+    function update() {
+      document.querySelectorAll(".screen").forEach((screen, index) => screen.classList.toggle("active", index === state.step));
+      document.querySelectorAll(".step").forEach((step, index) => {
+        step.classList.toggle("active", index === state.step);
+        step.classList.toggle("done", index < state.step);
+      });
+      renderIncentives();
+      renderVehicleStrip();
+      const sideStatus = document.getElementById("sideStatus");
+      sideStatus.textContent = state.valuation ? `Offer ${money.format(state.valuation.trade_offer)} valid through ${formatDate(state.valuation.offer_expires_at)}` : `${stepLabels[state.step]} active`;
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function validateStep() {
+      if (steps[state.step] === "vin") {
+        const vin = document.getElementById("vin").value.trim();
+        if (vin.length !== 17) return setStatus("vinStatus", "Enter a 17-character VIN.", true);
+      }
+      if (steps[state.step] === "mileage") {
+        const mileage = Number(document.getElementById("mileage").value);
+        if (!mileage || mileage < 1) return setStatus("sideStatus", "Mileage is required.", true);
+        syncVehicleInputs();
+      }
+      return true;
+    }
+
+    function setStatus(id, text, error) {
+      const node = document.getElementById(id);
+      node.textContent = text;
+      node.className = `status-line ${error ? "error" : ""}`;
+      return false;
+    }
+
+    function syncVehicleInputs() {
+      state.vehicle = {
+        ...state.vehicle,
+        vin: document.getElementById("vin").value.trim().toUpperCase(),
+        year: document.getElementById("year").value.trim(),
+        make: document.getElementById("make").value.trim().toUpperCase(),
+        model: document.getElementById("model").value.trim().toUpperCase(),
+        trim: document.getElementById("trim").value.trim(),
+        body_style: document.getElementById("bodyStyle").value.trim()
+      };
+    }
+
+    function renderVehicleStrip() {
+      syncVehicleInputs();
+      const items = [
+        ["Year", state.vehicle.year || "-"],
+        ["Make", state.vehicle.make || "-"],
+        ["Model", state.vehicle.model || "-"],
+        ["Trim", state.vehicle.trim || "-"]
+      ];
+      document.getElementById("vehicleStrip").innerHTML = items.map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
+    }
+
+    function renderIncentives() {
+      const unlocked = unlockedIncentives();
+      const main = window.AUTOTRADE.incentives.map(incentive => incentiveHtml(incentive, unlocked.includes(incentive.id))).join("");
+      document.getElementById("sideIncentives").innerHTML = main;
+      document.getElementById("mainIncentives").innerHTML = main;
+      document.getElementById("confirmationIncentives").innerHTML = unlocked.map(incentiveId => {
+        const incentive = window.AUTOTRADE.incentives.find(item => item.id === incentiveId);
+        return incentive ? incentiveHtml(incentive, true) : "";
+      }).join("");
+    }
+
+    function unlockedIncentives() {
+      const rank = state.valuation ? 6 : state.step;
+      return window.AUTOTRADE.incentives
+        .filter(incentive => (revealRank[incentive.reveal_step] ?? 5) <= rank)
+        .map(incentive => incentive.id);
+    }
+
+    function incentiveHtml(incentive, unlocked) {
+      const icon = iconFor(incentive.icon);
+      return `
+        <div class="incentive ${unlocked ? "" : "locked"}">
+          <div class="badge"><i data-lucide="${icon}"></i></div>
+          <div><strong>${incentive.title}</strong><div style="color:var(--muted); font-size:13px;">${incentive.description}</div></div>
+          <span class="pill">${unlocked ? incentive.value_label : "Locked"}</span>
+        </div>
+      `;
+    }
+
+    function iconFor(name) {
+      return ({ sparkle: "sparkles", wrench: "wrench", clock: "clock", calendar: "calendar-plus", gift: "gift" })[name] || "gift";
+    }
+
+    async function calculateOffer() {
+      syncVehicleInputs();
+      const button = document.getElementById("calculateBtn");
+      const status = document.getElementById("valuationStatus");
+      button.disabled = true;
+      button.innerHTML = `<span class="spinner"></span> Calculating`;
+      status.className = "status-line";
+      status.textContent = "Aggregating market signals and condition scoring...";
+      const formData = new FormData();
+      formData.append("vin", document.getElementById("vin").value.trim().toUpperCase());
+      formData.append("mileage", document.getElementById("mileage").value.trim());
+      formData.append("vehicle_json", JSON.stringify(state.vehicle));
+      formData.append("condition_json", JSON.stringify(readCondition()));
+      const labels = [];
+      document.querySelectorAll("[data-photo]").forEach(input => {
+        if (input.files && input.files[0]) {
+          labels.push(input.dataset.photo);
+          formData.append("photos", input.files[0]);
+        }
+      });
+      formData.append("photo_labels_json", JSON.stringify(labels));
+
+      try {
+        const response = await fetch(`/api/dealers/${window.AUTOTRADE.dealer.slug}/valuations`, { method: "POST", body: formData });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Valuation failed.");
+        state.valuation = payload.valuation;
+        document.getElementById("offerBand").hidden = false;
+        document.getElementById("offerValue").textContent = money.format(state.valuation.trade_offer);
+        document.getElementById("offerMeta").innerHTML = `
+          <span>Range ${money.format(state.valuation.valuation_low)}-${money.format(state.valuation.valuation_high)}</span>
+          <span>${state.valuation.condition_grade}</span>
+          <span>Valid through ${formatDate(state.valuation.offer_expires_at)}</span>
+        `;
+        status.className = "status-line success";
+        status.textContent = "Offer ready. Book in-app to secure priority scheduling.";
+        document.getElementById("toAppointmentBtn").hidden = false;
+      } catch (error) {
+        status.className = "status-line error";
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+        button.innerHTML = `<i data-lucide="calculator"></i> Recalculate`;
+        update();
+      }
+    }
+
+    function readCondition() {
+      const answers = {};
+      conditionGroups.forEach(([name]) => {
+        const selected = document.querySelector(`input[name="${name}"]:checked`);
+        answers[name] = selected ? selected.value : "unknown";
+      });
+      return answers;
+    }
+
+    async function bookAppointment() {
+      if (!state.valuation) return setStatus("appointmentStatus", "Calculate an offer first.", true);
+      const payload = {
+        name: document.getElementById("customerName").value.trim(),
+        email: document.getElementById("customerEmail").value.trim(),
+        phone: document.getElementById("customerPhone").value.trim(),
+        scheduled_date: document.getElementById("appointmentDate").value,
+        scheduled_time: document.getElementById("appointmentTime").value,
+        notes: document.getElementById("appointmentNotes").value.trim(),
+        marketing_consent: document.getElementById("marketingConsent").checked
+      };
+      if (!payload.name || !payload.email || !payload.phone || !payload.scheduled_date) {
+        return setStatus("appointmentStatus", "Name, email, phone, date, and time are required.", true);
+      }
+      const status = document.getElementById("appointmentStatus");
+      status.className = "status-line";
+      status.textContent = "Booking appointment...";
+      try {
+        const response = await fetch(`/api/valuations/${state.valuation.public_id}/appointments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Appointment booking failed.");
+        state.appointment = result.valuation;
+        renderConfirmation(result.valuation);
+        go(7);
+      } catch (error) {
+        status.className = "status-line error";
+        status.textContent = error.message;
+      }
+    }
+
+    function renderConfirmation(valuation) {
+      document.getElementById("confirmationValue").textContent = money.format(valuation.trade_offer);
+      const address = [valuation.address_line1, valuation.city, valuation.state, valuation.postal_code].filter(Boolean).join(", ");
+      document.getElementById("confirmationMeta").innerHTML = `
+        <span>${valuation.confirmation_code}</span>
+        <span>${valuation.scheduled_date} at ${valuation.scheduled_time}</span>
+        <span>${address}</span>
+      `;
+    }
+
+    function vehicleName(vehicle) {
+      return [vehicle.year, vehicle.make, vehicle.model, vehicle.trim].filter(Boolean).join(" ");
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    }
+
+    init();
+  </script>
+</body>
+</html>

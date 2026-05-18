@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AutoTrade Pro Admin</title>
+  <style>
+    :root {
+      --primary: {{ dealer.primary_color }};
+      --accent: {{ dealer.accent_color }};
+      --ink: #17212b;
+      --muted: #607080;
+      --line: #d8e0e7;
+      --soft: #f3f6f8;
+      --good: #227c5a;
+      --bad: #9d2b2b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #edf2f5;
+    }
+    button, input, select, textarea { font: inherit; }
+    a { color: var(--primary); }
+    .layout {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      background: #15212c;
+      color: #fff;
+      padding: 22px;
+    }
+    .brand { font-size: 22px; font-weight: 900; letter-spacing: 0; margin-bottom: 24px; }
+    .dealer-switch { display: grid; gap: 8px; margin-bottom: 24px; }
+    aside select {
+      width: 100%;
+      background: #22313f;
+      color: #fff;
+      border: 1px solid #33485a;
+      border-radius: 6px;
+      min-height: 42px;
+      padding: 9px;
+    }
+    nav { display: grid; gap: 8px; }
+    nav a, aside button {
+      color: #dfe8ee;
+      text-decoration: none;
+      min-height: 40px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      padding: 9px 10px;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+    }
+    nav a:hover, aside button:hover { background: #22313f; }
+    main { padding: clamp(20px, 4vw, 34px); }
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    h1, h2, h3 { letter-spacing: 0; }
+    h1 { margin: 0; font-size: 34px; }
+    h2 { margin: 0 0 14px; font-size: 22px; }
+    h3 { margin: 0 0 10px; font-size: 16px; }
+    .muted { color: var(--muted); }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+    .stat, .panel {
+      background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+    .stat { padding: 16px; }
+    .stat span { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 850; }
+    .stat strong { display: block; margin-top: 6px; font-size: 28px; }
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(340px, .8fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .panel { padding: 18px; margin-bottom: 18px; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 11px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: #40505f; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }
+    tr:last-child td { border-bottom: 0; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #e9f2f7;
+      color: var(--primary);
+      font-weight: 800;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    form.grid-form {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    label { display: grid; gap: 6px; font-size: 13px; color: #45525f; font-weight: 800; }
+    input, select, textarea {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 9px 10px;
+      background: #fff;
+      color: var(--ink);
+    }
+    .full { grid-column: 1 / -1; }
+    .btn {
+      min-height: 42px;
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 13px;
+      color: #fff;
+      background: var(--primary);
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }
+    .btn.secondary { color: var(--primary); background: #e7eef3; }
+    .incentive-form {
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      margin-top: 14px;
+    }
+    .source-list, .event-list { display: grid; gap: 10px; }
+    .source-row, .event-row {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+    .source-row strong, .event-row strong { display: block; }
+    .source-row span, .event-row span { color: var(--muted); font-size: 13px; }
+    @media (max-width: 1000px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; }
+      .stats, .grid { grid-template-columns: 1fr; }
+      form.grid-form { grid-template-columns: 1fr; }
+      .topline { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">AutoTrade Pro</div>
+      <form class="dealer-switch" method="get" action="/admin">
+        <label>
+          Dealer
+          <select name="dealer" onchange="this.form.submit()">
+            {% for item in dealers %}
+              <option value="{{ item.slug }}" {% if item.id == dealer.id %}selected{% endif %}>{{ item.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      <nav>
+        <a href="#leads">Leads</a>
+        <a href="#dealer">White Label</a>
+        <a href="#incentives">Incentives</a>
+        <a href="#feeds">Data Sources</a>
+        <a href="/d/{{ dealer.slug }}">Public App</a>
+        <a href="/admin/export.csv">Export CSV</a>
+      </nav>
+      <form method="post" action="/admin/logout" style="margin-top:24px;"><button type="submit">Sign out</button></form>
+    </aside>
+
+    <main>
+      <div class="topline">
+        <div>
+          <h1>{{ dealer.name }}</h1>
+          <div class="muted">{{ dealer.address_line1 }}, {{ dealer.city }}, {{ dealer.state }} {{ dealer.postal_code }}</div>
+        </div>
+        <a class="btn secondary" href="/d/{{ dealer.slug }}">Open valuation app</a>
+      </div>
+
+      <section class="stats">
+        <div class="stat"><span>Total valuations</span><strong>{{ stats.total_valuations or 0 }}</strong></div>
+        <div class="stat"><span>Appointments</span><strong>{{ stats.appointments or 0 }}</strong></div>
+        <div class="stat"><span>Average offer</span><strong>{{ stats.average_offer|currency }}</strong></div>
+        <div class="stat"><span>Avg condition</span><strong>{{ "%.1f"|format(stats.average_condition or 0) }}</strong></div>
+      </section>
+
+      <div class="grid">
+        <div>
+          <section class="panel" id="leads">
+            <h2>Lead Dashboard</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Lead</th>
+                  <th>Vehicle</th>
+                  <th>Offer</th>
+                  <th>Appointment</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for lead in leads %}
+                  <tr>
+                    <td>
+                      <strong>{{ lead.customer_name or "Contact pending" }}</strong><br>
+                      <span class="muted">{{ lead.customer_email or lead.public_id }}</span>
+                    </td>
+                    <td>{{ lead.year or "" }} {{ lead.make }} {{ lead.model }} {{ lead.trim }}<br><span class="muted">{{ lead.mileage }} mi</span></td>
+                    <td><strong>{{ lead.trade_offer|currency }}</strong><br><span class="muted">{{ lead.condition_grade }}</span></td>
+                    <td>
+                      {% if lead.scheduled_date %}
+                        {{ lead.scheduled_date }}<br><span class="muted">{{ lead.scheduled_time }} · {{ lead.confirmation_code }}</span>
+                      {% else %}
+                        <span class="muted">Not booked</span>
+                      {% endif %}
+                    </td>
+                    <td><span class="pill">{{ lead.status.replace("_", " ") }}</span></td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="5" class="muted">No valuation leads yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </section>
+
+          <section class="panel" id="dealer">
+            <h2>White Label Settings</h2>
+            <form class="grid-form" method="post" action="/admin/dealer/{{ dealer.id }}">
+              <label>Name<input name="name" value="{{ dealer.name }}"></label>
+              <label>Legal name<input name="legal_name" value="{{ dealer.legal_name }}"></label>
+              <label class="full">Logo URL<input name="logo_url" value="{{ dealer.logo_url }}"></label>
+              <label class="full">Hero image URL<input name="hero_image_url" value="{{ dealer.hero_image_url }}"></label>
+              <label>Primary color<input name="primary_color" value="{{ dealer.primary_color }}"></label>
+              <label>Accent color<input name="accent_color" value="{{ dealer.accent_color }}"></label>
+              <label>Phone<input name="phone" value="{{ dealer.phone }}"></label>
+              <label>Email<input name="email" value="{{ dealer.email }}"></label>
+              <label class="full">Address<input name="address_line1" value="{{ dealer.address_line1 }}"></label>
+              <label>City<input name="city" value="{{ dealer.city }}"></label>
+              <label>State<input name="state" value="{{ dealer.state }}"></label>
+              <label>Postal code<input name="postal_code" value="{{ dealer.postal_code }}"></label>
+              <label>Timezone<input name="appointment_timezone" value="{{ dealer.appointment_timezone }}"></label>
+              <label>Bonus credit amount<input name="bonus_credit_amount" type="number" value="{{ dealer.bonus_credit_amount }}"></label>
+              <label>Offer hold days<input name="valuation_hold_days" type="number" value="{{ dealer.valuation_hold_days }}"></label>
+              <label>Max retail percent<input name="max_retail_percent" type="number" step="0.01" value="{{ dealer.max_retail_percent }}"></label>
+              <label class="full">CRM webhook URL<input name="crm_webhook_url" value="{{ dealer.crm_webhook_url }}"></label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="bonus_credit_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.bonus_credit_enabled %}checked{% endif %}> Booking bonus enabled</label>
+              <div class="full"><button class="btn" type="submit">Save dealer settings</button></div>
+            </form>
+          </section>
+        </div>
+
+        <div>
+          <section class="panel" id="incentives">
+            <h2>Incentives</h2>
+            {% for incentive in incentives %}
+              <form class="grid-form incentive-form" method="post" action="/admin/incentives/{{ incentive.id }}">
+                <label>Title<input name="title" value="{{ incentive.title }}"></label>
+                <label>Value<input name="value_label" value="{{ incentive.value_label }}"></label>
+                <label>Reveal step
+                  <select name="reveal_step">
+                    {% for step in ["vin", "condition", "photos", "offer"] %}
+                      <option value="{{ step }}" {% if incentive.reveal_step == step %}selected{% endif %}>{{ step }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label>Sort<input name="sort_order" type="number" value="{{ incentive.sort_order }}"></label>
+                <label class="full">Description<input name="description" value="{{ incentive.description }}"></label>
+                <label>Icon<input name="icon" value="{{ incentive.icon }}"></label>
+                <label style="display:flex; align-items:center; gap:9px;"><input name="active" type="checkbox" style="width:auto; min-height:auto;" {% if incentive.active %}checked{% endif %}> Active</label>
+                <div class="full"><button class="btn secondary" type="submit">Update incentive</button></div>
+              </form>
+            {% endfor %}
+          </section>
+
+          <section class="panel" id="feeds">
+            <h2>Data Sources</h2>
+            <div class="source-list">
+              {% for source in data_sources %}
+                <div class="source-row">
+                  <strong>{{ source.source }}</strong>
+                  <span>{{ source.rows_count }} rows · {{ source.region }} · latest {{ source.latest_capture }}</span>
+                </div>
+              {% else %}
+                <div class="source-row"><strong>No snapshots</strong><span>Import a CSV or configure a licensed feed.</span></div>
+              {% endfor %}
+            </div>
+            <button class="btn" type="button" style="margin-top:12px;" onclick="refreshMarket()">Refresh feeds</button>
+          </section>
+
+          <section class="panel">
+            <h2>CRM Events</h2>
+            <div class="event-list">
+              {% for event in crm_events %}
+                <div class="event-row">
+                  <strong>{{ event.event_type }} · {{ event.status }}</strong>
+                  <span>{{ event.created_at }}{% if event.response_text %} · {{ event.response_text }}{% endif %}</span>
+                </div>
+              {% else %}
+                <div class="event-row"><strong>No CRM events yet</strong><span>Valuations and appointments will appear here.</span></div>
+              {% endfor %}
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    async function refreshMarket() {
+      const response = await fetch("/admin/market-refresh", { method: "POST" });
+      const payload = await response.json();
+      alert(`Market refresh ${payload.status}; imported ${payload.imported || 0} rows.`);
+      window.location.reload();
+    }
+  </script>
+</body>
+</html>

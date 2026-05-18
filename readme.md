@@ -1,0 +1,97 @@
+# AutoTrade Pro
+
+AutoTrade Pro is a white-label trade-in valuation SaaS prototype for automotive dealerships. It replaces the previous kiln app with a public customer valuation journey, incentive reveal flow, appointment booking, CRM event logging, dealer branding controls, and a pluggable valuation data layer.
+
+## What Is Included
+
+- Public dealer app at `/d/<dealer-slug>` with VIN, mileage, condition, photo upload, incentive, valuation, appointment, and confirmation steps.
+- Admin dashboard at `/admin` for leads, dealer branding, incentives, data-source status, CRM events, and CSV export.
+- SQLite schema for dealers, incentives, valuations, photos, customers, appointments, market snapshots, CRM events, and audit events.
+- NHTSA vPIC VIN decoder integration with a safe fallback for manual entry.
+- Market data abstraction for licensed Manheim/J.D. Power/Black Book-style feeds plus dealer CSV imports and seeded demo South Florida snapshots.
+- Valuation engine with condition-first weighting and a hard maximum offer cap at 95% of retail market value by default.
+- Optional one-shot or background worker for market snapshot refresh.
+
+## Data Source Notes
+
+The app is wired for real integrations, but not all valuation sources are public APIs:
+
+- NHTSA vPIC is public and used for VIN decoding: https://vpic.nhtsa.dot.gov/api/Home/Index
+- Manheim MMR is a licensed wholesale valuation source; API clients are directed to Cox Automotive data syndication: https://site.manheim.com/en/help/mmr.html
+- J.D. Power/ChromeData offers vehicle description and valuation products through commercial data services: https://www.jdpower.com/business/features-price-specs
+- Black Book offers retail listings and custom trade-value APIs through commercial licensing: https://www.blackbook.com/api/
+
+Without licensed keys, AutoTrade Pro runs with seeded demo market snapshots and a deterministic fallback estimator so dealers can demo the full workflow.
+
+## Run Locally
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python server.py
+```
+
+Open:
+
+- Public app: http://localhost:5000/
+- Admin: http://localhost:5000/admin
+- Default admin password: `AutoTrade123!`
+
+## Docker
+
+```bash
+docker-compose up --build
+```
+
+For live reload:
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+## Configuration
+
+Common environment variables:
+
+- `AUTOTRADE_DATA_DIR`: runtime data directory, default `data`
+- `AUTOTRADE_DB_FILE`: SQLite file, default `autotrade.db`
+- `AUTOTRADE_ADMIN_PASSWORD`: admin dashboard password
+- `AUTOTRADE_DEFAULT_DEALER`: default dealer slug, default `south-florida-demo`
+- `AUTOTRADE_MARKET_REGION`: valuation region, default `south_florida`
+- `AUTOTRADE_MARKET_FEED_CSV`: optional CSV import path
+- `AUTOTRADE_MANHEIM_API_BASE` and `AUTOTRADE_MANHEIM_API_KEY`: optional licensed wholesale feed
+- `AUTOTRADE_JD_POWER_API_BASE` and `AUTOTRADE_JD_POWER_API_KEY`: optional licensed comparable feed
+- `AUTOTRADE_BLACK_BOOK_API_BASE` and `AUTOTRADE_BLACK_BOOK_API_KEY`: optional licensed comparable feed
+- `AUTOTRADE_CRM_WEBHOOK_URL`: fallback CRM webhook URL
+- `AUTOTRADE_SMTP_*`: optional confirmation email delivery
+- `AUTOTRADE_SMS_WEBHOOK_URL`: optional SMS webhook
+- `AUTOTRADE_ENABLE_WORKER=1`: starts periodic CSV market refresh in-process
+
+## Dealer Market CSV
+
+The refresh worker accepts CSV columns:
+
+```text
+year,make,model,trim,region,source,retail_value,wholesale_value,sample_size,days_supply,confidence,captured_at
+```
+
+Run a one-shot import:
+
+```bash
+PYTHONPATH=src python scripts/refresh_market_data.py
+```
+
+## Tests
+
+```bash
+PYTHONPATH=src pytest
+```
+
+## Packaging
+
+```bash
+make zip
+```
+
+The zip excludes `.git`, virtual environments, runtime data, and existing zip archives.

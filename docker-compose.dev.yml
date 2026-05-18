@@ -1,0 +1,20 @@
+version: "3.9"
+
+services:
+  autotrade-pro:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./src:/app/src
+      - ./scripts:/app/scripts
+      - ./server.py:/app/server.py
+      - ./data:/app/data
+    environment:
+      - AUTOTRADE_DATA_DIR=/app/data
+      - AUTOTRADE_ADMIN_PASSWORD=${AUTOTRADE_ADMIN_PASSWORD:-AutoTrade123!}
+      - AUTOTRADE_MARKET_REGION=${AUTOTRADE_MARKET_REGION:-south_florida}
+      - FLASK_DEBUG=1
+    command: python -u server.py
+    stdin_open: true
+    tty: true
