@@ -28,6 +28,34 @@ BODY_STYLES = [
     "Sports Car",
 ]
 
+COMMON_MAKES = [
+    "TOYOTA",
+    "HONDA",
+    "FORD",
+    "CHEVROLET",
+    "NISSAN",
+    "HYUNDAI",
+    "KIA",
+    "SUBARU",
+    "MAZDA",
+    "JEEP",
+    "GMC",
+    "RAM",
+    "VOLKSWAGEN",
+    "BMW",
+    "MERCEDES-BENZ",
+    "LEXUS",
+    "AUDI",
+    "TESLA",
+    "ACURA",
+    "DODGE",
+    "CHRYSLER",
+    "VOLVO",
+    "CADILLAC",
+    "LINCOLN",
+    "PORSCHE",
+]
+
 FALLBACK_MODELS_BY_MAKE = {
     "ACURA": ["Integra", "MDX", "RDX", "TLX"],
     "AUDI": ["A3", "A4", "A5", "A6", "Q3", "Q5", "Q7", "Q8", "e-tron"],
@@ -58,6 +86,38 @@ FALLBACK_MODELS_BY_MAKE = {
     "TOYOTA": ["4Runner", "Camry", "Corolla", "Highlander", "Prius", "RAV4", "Sequoia", "Sienna", "Tacoma", "Tundra"],
     "VOLKSWAGEN": ["Atlas", "Golf", "ID.4", "Jetta", "Passat", "Taos", "Tiguan"],
     "VOLVO": ["S60", "S90", "V60", "XC40", "XC60", "XC90"],
+}
+
+COMMON_MODELS_BY_MAKE = {
+    "ACURA": ["MDX", "RDX", "TLX", "Integra"],
+    "AUDI": ["Q5", "Q7", "A4", "A6", "Q3", "Q8", "A3", "A5", "e-tron"],
+    "BMW": ["3 Series", "X5", "X3", "5 Series", "X1", "X7", "4 Series", "2 Series", "i4"],
+    "BUICK": ["Encore", "Enclave", "Envision"],
+    "CADILLAC": ["Escalade", "XT5", "XT4", "XT6", "CT5", "CT4", "Lyriq"],
+    "CHEVROLET": ["Silverado", "Equinox", "Tahoe", "Traverse", "Suburban", "Colorado", "Malibu", "Blazer", "Camaro", "Corvette", "Bolt"],
+    "CHRYSLER": ["Pacifica", "300", "Voyager"],
+    "DODGE": ["Charger", "Durango", "Challenger", "Grand Caravan", "Hornet"],
+    "FORD": ["F-150", "Explorer", "Escape", "Bronco", "Mustang", "Expedition", "Ranger", "Edge", "Maverick", "Transit"],
+    "GENESIS": ["GV70", "GV80", "G70", "G80", "G90"],
+    "GMC": ["Sierra", "Yukon", "Terrain", "Acadia", "Canyon"],
+    "HONDA": ["CR-V", "Civic", "Accord", "Pilot", "HR-V", "Odyssey", "Ridgeline", "Passport", "Fit"],
+    "HYUNDAI": ["Tucson", "Santa Fe", "Elantra", "Palisade", "Sonata", "Kona", "Ioniq 5"],
+    "INFINITI": ["QX60", "Q50", "QX80", "QX50", "Q60"],
+    "JEEP": ["Wrangler", "Grand Cherokee", "Cherokee", "Compass", "Gladiator", "Renegade", "Wagoneer"],
+    "KIA": ["Telluride", "Sportage", "Sorento", "Soul", "K5", "Seltos", "Forte", "Carnival", "Niro", "EV6"],
+    "LEXUS": ["RX", "NX", "ES", "GX", "IS", "TX", "UX", "LX", "LS", "LC"],
+    "LINCOLN": ["Navigator", "Aviator", "Nautilus", "Corsair"],
+    "MAZDA": ["CX-5", "CX-30", "Mazda3", "CX-50", "CX-90", "CX-9", "MX-5 Miata"],
+    "MERCEDES-BENZ": ["C-Class", "GLE", "GLC", "E-Class", "GLS", "S-Class", "GLA", "A-Class"],
+    "MINI": ["Cooper", "Countryman", "Hardtop", "Convertible", "Clubman"],
+    "NISSAN": ["Rogue", "Altima", "Sentra", "Frontier", "Pathfinder", "Murano", "Versa", "Titan", "Armada", "Maxima", "Leaf"],
+    "PORSCHE": ["Macan", "Cayenne", "911", "Panamera", "Taycan", "718"],
+    "RAM": ["1500", "2500", "3500", "ProMaster"],
+    "SUBARU": ["Outback", "Forester", "Crosstrek", "Ascent", "Impreza", "Legacy", "WRX", "BRZ"],
+    "TESLA": ["Model Y", "Model 3", "Model S", "Model X", "Cybertruck"],
+    "TOYOTA": ["RAV4", "Camry", "Corolla", "Tacoma", "Highlander", "4Runner", "Tundra", "Sienna", "Prius", "Sequoia"],
+    "VOLKSWAGEN": ["Tiguan", "Jetta", "Atlas", "Taos", "ID.4", "Passat", "Golf"],
+    "VOLVO": ["XC60", "XC90", "XC40", "S60", "S90", "V60"],
 }
 
 GENERIC_TRIMS = [
@@ -120,13 +180,13 @@ class VehicleOptionsClient:
                     if make:
                         makes.add(make.upper())
             if makes:
-                result = sorted(makes)
+                result = _prioritize_makes(makes)
                 _CACHE[cache_key] = result
                 return result, "nhtsa_vpic"
         except Exception:
             pass
 
-        result = sorted(FALLBACK_MODELS_BY_MAKE)
+        result = _prioritize_makes(FALLBACK_MODELS_BY_MAKE)
         return result, "fallback"
 
     def models(self, make: str, year: int | None = None) -> tuple[list[str], str]:
@@ -143,13 +203,13 @@ class VehicleOptionsClient:
             if year:
                 path = f"{path}/modelyear/{year}"
             payload = self._get(path, params={"format": "json"})
-            models = sorted(
+            models = _prioritize_models(
+                make,
                 {
                     _clean(row.get("Model_Name") or row.get("ModelName"))
                     for row in payload.get("Results") or []
                     if _clean(row.get("Model_Name") or row.get("ModelName"))
                 },
-                key=str.upper,
             )
             if models:
                 _CACHE[cache_key] = models
@@ -157,7 +217,7 @@ class VehicleOptionsClient:
         except Exception:
             pass
 
-        return FALLBACK_MODELS_BY_MAKE.get(make, []), "fallback"
+        return _prioritize_models(make, FALLBACK_MODELS_BY_MAKE.get(make, [])), "fallback"
 
     def trims(self, make: str, model: str) -> list[str]:
         model_key = _clean(model).upper()
@@ -178,3 +238,33 @@ class VehicleOptionsClient:
 
 def _clean(value: object) -> str:
     return str(value or "").strip()
+
+
+def _prioritize_makes(values: Any) -> list[str]:
+    return _prioritize_values(values, COMMON_MAKES)
+
+
+def _prioritize_models(make: str, values: Any) -> list[str]:
+    return _prioritize_values(values, COMMON_MODELS_BY_MAKE.get(_clean(make).upper(), []))
+
+
+def _prioritize_values(values: Any, priority: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        normalized = _clean(value)
+        key = normalized.upper()
+        if not normalized or key in seen:
+            continue
+        cleaned.append(normalized)
+        seen.add(key)
+
+    priority_index = {item.upper(): index for index, item in enumerate(priority)}
+
+    def sort_key(value: str) -> tuple[int, int, str]:
+        key = value.upper()
+        if key in priority_index:
+            return 0, priority_index[key], key
+        return 1, len(priority_index), key
+
+    return sorted(cleaned, key=sort_key)

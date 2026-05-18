@@ -157,6 +157,7 @@
     .hidden { display: none !important; }
     .muted { color: var(--muted); }
     label { font-size: 13px; color: #45525f; font-weight: 800; }
+    #year, #make, #model, #trim, #bodyStyle { display: none; }
     input, select, textarea {
       width: 100%;
       border: 1px solid var(--line);
@@ -168,6 +169,40 @@
       outline: none;
     }
     input:focus, select:focus, textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(24, 78, 119, .16); }
+    .search-select { position: relative; }
+    .search-input:disabled { background: #f7fafb; color: var(--muted); cursor: not-allowed; }
+    .search-options {
+      position: absolute;
+      inset: calc(100% + 5px) 0 auto 0;
+      z-index: 40;
+      max-height: 246px;
+      overflow-y: auto;
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      box-shadow: 0 14px 30px rgba(23, 33, 43, .16);
+    }
+    .search-option, .search-empty {
+      width: 100%;
+      min-height: 36px;
+      justify-content: flex-start;
+      border-radius: 4px;
+      padding: 8px 9px;
+      background: #fff;
+      color: var(--ink);
+      text-align: left;
+      box-shadow: none;
+    }
+    .search-option:hover, .search-option.active { background: #e7eef3; }
+    .search-empty { color: var(--muted); cursor: default; }
+    .search-custom {
+      margin-top: 5px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+      color: var(--primary);
+      font-weight: 800;
+    }
     .actions {
       display: flex;
       align-items: center;
@@ -419,27 +454,47 @@
                   <input id="zip" inputmode="numeric" maxlength="10" placeholder="{{ dealer.postal_code }}">
                 </div>
                 <div class="field">
-                  <label for="year">Year</label>
+                  <label for="yearSearch">Year</label>
                   <select id="year"></select>
+                  <div class="search-select" data-search-select="year">
+                    <input id="yearSearch" class="search-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="yearOptions" placeholder="Select year">
+                    <div id="yearOptions" class="search-options" role="listbox" hidden></div>
+                  </div>
                 </div>
                 <div class="field">
-                  <label for="make">Make</label>
+                  <label for="makeSearch">Make</label>
                   <select id="make"></select>
+                  <div class="search-select" data-search-select="make">
+                    <input id="makeSearch" class="search-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="makeOptions" placeholder="Search make">
+                    <div id="makeOptions" class="search-options" role="listbox" hidden></div>
+                  </div>
                   <input id="makeOther" class="hidden" autocomplete="off" placeholder="Enter make">
                 </div>
                 <div class="field">
-                  <label for="model">Model</label>
+                  <label for="modelSearch">Model</label>
                   <select id="model"></select>
+                  <div class="search-select" data-search-select="model">
+                    <input id="modelSearch" class="search-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="modelOptions" placeholder="Search model">
+                    <div id="modelOptions" class="search-options" role="listbox" hidden></div>
+                  </div>
                   <input id="modelOther" class="hidden" autocomplete="off" placeholder="Enter model">
                 </div>
                 <div class="field">
-                  <label for="trim">Trim</label>
+                  <label for="trimSearch">Trim</label>
                   <select id="trim"></select>
+                  <div class="search-select" data-search-select="trim">
+                    <input id="trimSearch" class="search-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="trimOptions" placeholder="Search trim">
+                    <div id="trimOptions" class="search-options" role="listbox" hidden></div>
+                  </div>
                   <input id="trimOther" class="hidden" autocomplete="off" placeholder="Enter trim">
                 </div>
                 <div class="field">
-                  <label for="bodyStyle">Body style</label>
+                  <label for="bodyStyleSearch">Body style</label>
                   <select id="bodyStyle"></select>
+                  <div class="search-select" data-search-select="bodyStyle">
+                    <input id="bodyStyleSearch" class="search-input" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="bodyStyleOptions" placeholder="Search body style">
+                    <div id="bodyStyleOptions" class="search-options" role="listbox" hidden></div>
+                  </div>
                   <input id="bodyStyleOther" class="hidden" autocomplete="off" placeholder="Enter body style">
                 </div>
               </div>
@@ -591,6 +646,8 @@
     const stepLabels = ["Vehicle", "Mileage", "Condition", "Photos", "Perks", "Offer", "Booking", "Done"];
     const revealRank = { vin: 0, mileage: 1, condition: 2, photos: 3, offer: 5 };
     const CUSTOM_VALUE = "__custom__";
+    const SEARCHABLE_SELECT_IDS = ["year", "make", "model", "trim", "bodyStyle"];
+    const searchableSelects = {};
     const state = {
       step: 0,
       vehicle: {},
@@ -629,6 +686,7 @@
       });
       document.getElementById("toAppointmentBtn").addEventListener("click", () => go(6));
       document.getElementById("bookBtn").addEventListener("click", bookAppointment);
+      initSearchableSelects();
       initVehicleSelectors();
       renderCondition();
       renderPhotoSlots();
@@ -666,6 +724,199 @@
       document.getElementById("appointmentDate").min = new Date().toISOString().slice(0, 10);
     }
 
+    function initSearchableSelects() {
+      SEARCHABLE_SELECT_IDS.forEach(id => {
+        const select = document.getElementById(id);
+        const input = document.getElementById(`${id}Search`);
+        const panel = document.getElementById(`${id}Options`);
+        if (!select || !input || !panel) return;
+        searchableSelects[id] = { select, input, panel, activeIndex: -1 };
+
+        input.addEventListener("input", () => {
+          searchableSelects[id].activeIndex = 0;
+          renderSearchOptions(id);
+        });
+        input.addEventListener("focus", () => renderSearchOptions(id));
+        input.addEventListener("blur", () => {
+          window.setTimeout(() => {
+            commitSearchInput(id);
+            closeSearchOptions(id);
+          }, 120);
+        });
+        input.addEventListener("keydown", event => handleSearchKeydown(event, id));
+      });
+
+      document.addEventListener("click", event => {
+        SEARCHABLE_SELECT_IDS.forEach(id => {
+          const wrapper = document.querySelector(`[data-search-select="${id}"]`);
+          if (wrapper && !wrapper.contains(event.target)) closeSearchOptions(id);
+        });
+      });
+    }
+
+    function handleSearchKeydown(event, id) {
+      const widget = searchableSelects[id];
+      if (!widget) return;
+      const buttons = optionButtons(id);
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        if (widget.panel.hidden) renderSearchOptions(id);
+        widget.activeIndex = Math.min(optionButtons(id).length - 1, widget.activeIndex + 1);
+        markActiveSearchOption(id);
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        widget.activeIndex = Math.max(0, widget.activeIndex - 1);
+        markActiveSearchOption(id);
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const currentButtons = buttons.length ? buttons : optionButtons(id);
+        const button = currentButtons[Math.max(0, widget.activeIndex)];
+        if (button) button.click();
+        else commitSearchInput(id);
+      }
+      if (event.key === "Escape") closeSearchOptions(id);
+    }
+
+    function renderSearchOptions(id) {
+      const widget = searchableSelects[id];
+      if (!widget || widget.select.disabled) {
+        closeSearchOptions(id);
+        syncSearchableSelect(id);
+        return;
+      }
+      const query = widget.input.value.trim().toLowerCase();
+      const options = [...widget.select.options]
+        .filter(option => option.value && option.value !== CUSTOM_VALUE)
+        .map(option => ({ value: option.value, label: option.textContent || option.value }));
+      const hasCustom = [...widget.select.options].some(option => option.value === CUSTOM_VALUE);
+      const matches = options
+        .filter(option => !query || option.label.toLowerCase().includes(query) || option.value.toLowerCase().includes(query))
+        .slice(0, 75);
+
+      widget.panel.innerHTML = "";
+      if (!matches.length && !hasCustom) {
+        const empty = document.createElement("div");
+        empty.className = "search-empty";
+        empty.textContent = "No matches";
+        widget.panel.appendChild(empty);
+      }
+      matches.forEach((option, index) => {
+        widget.panel.appendChild(searchOptionButton(id, option.value, option.label, index));
+      });
+      if (hasCustom) {
+        const customLabel = query ? `Use "${widget.input.value.trim()}"` : "Not listed";
+        const customButton = searchOptionButton(id, CUSTOM_VALUE, customLabel, matches.length);
+        customButton.classList.add("search-custom");
+        widget.panel.appendChild(customButton);
+      }
+      widget.activeIndex = Math.min(Math.max(widget.activeIndex, 0), Math.max(0, optionButtons(id).length - 1));
+      markActiveSearchOption(id);
+      widget.panel.hidden = false;
+      widget.input.setAttribute("aria-expanded", "true");
+    }
+
+    function searchOptionButton(id, value, label, index) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "search-option";
+      button.dataset.value = value;
+      button.setAttribute("role", "option");
+      button.textContent = label;
+      button.addEventListener("mousedown", event => event.preventDefault());
+      button.addEventListener("click", () => chooseSearchOption(id, value, label));
+      if (index === 0) button.classList.add("active");
+      return button;
+    }
+
+    function chooseSearchOption(id, value, label) {
+      const widget = searchableSelects[id];
+      if (!widget || widget.select.disabled) return;
+      const custom = document.getElementById(`${id}Other`);
+      const typed = widget.input.value.trim();
+      widget.select.value = value;
+      if (value === CUSTOM_VALUE && custom) {
+        setCustomMode(id, true);
+        custom.value = typed && typed !== label ? typed : "";
+        widget.input.value = custom.value;
+      } else {
+        setCustomMode(id, false);
+        widget.input.value = label;
+      }
+      closeSearchOptions(id);
+      widget.select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function commitSearchInput(id) {
+      const widget = searchableSelects[id];
+      if (!widget || widget.select.disabled) return;
+      const typed = widget.input.value.trim();
+      const previous = widget.select.value;
+      if (!typed) {
+        widget.select.value = "";
+        setCustomMode(id, false);
+      } else {
+        const exact = [...widget.select.options].find(option => {
+          const text = (option.textContent || option.value).trim();
+          return option.value !== CUSTOM_VALUE && (option.value.toUpperCase() === typed.toUpperCase() || text.toUpperCase() === typed.toUpperCase());
+        });
+        const custom = document.getElementById(`${id}Other`);
+        if (exact) {
+          widget.select.value = exact.value;
+          setCustomMode(id, false);
+          widget.input.value = exact.textContent || exact.value;
+        } else if (custom && [...widget.select.options].some(option => option.value === CUSTOM_VALUE)) {
+          widget.select.value = CUSTOM_VALUE;
+          setCustomMode(id, true);
+          custom.value = typed;
+          widget.input.value = typed;
+        } else {
+          widget.select.value = "";
+        }
+      }
+      if (widget.select.value !== previous) widget.select.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    function syncSearchableSelect(id) {
+      const widget = searchableSelects[id];
+      if (!widget) return;
+      const placeholder = widget.select.options[0] ? widget.select.options[0].textContent : "Search";
+      widget.input.placeholder = placeholder || "Search";
+      widget.input.disabled = widget.select.disabled;
+      if (widget.select.value === CUSTOM_VALUE) {
+        const custom = document.getElementById(`${id}Other`);
+        widget.input.value = custom ? custom.value : "";
+      } else {
+        const selected = widget.select.selectedOptions[0];
+        widget.input.value = selected && selected.value ? selected.textContent : "";
+      }
+      if (widget.select.disabled) closeSearchOptions(id);
+    }
+
+    function closeSearchOptions(id) {
+      const widget = searchableSelects[id];
+      if (!widget) return;
+      widget.panel.hidden = true;
+      widget.input.setAttribute("aria-expanded", "false");
+    }
+
+    function optionButtons(id) {
+      const widget = searchableSelects[id];
+      return widget ? [...widget.panel.querySelectorAll(".search-option")] : [];
+    }
+
+    function markActiveSearchOption(id) {
+      const widget = searchableSelects[id];
+      if (!widget) return;
+      optionButtons(id).forEach((button, index) => {
+        const active = index === widget.activeIndex;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", active ? "true" : "false");
+        if (active) button.scrollIntoView({ block: "nearest" });
+      });
+    }
+
     async function initVehicleSelectors() {
       bindVehicleSelectorEvents();
       populateSelect("year", [], "Select year");
@@ -675,6 +926,8 @@
       populateSelect("bodyStyle", [], "Loading body styles", true);
       document.getElementById("model").disabled = true;
       document.getElementById("trim").disabled = true;
+      syncSearchableSelect("model");
+      syncSearchableSelect("trim");
 
       try {
         const response = await fetch("/api/vehicle-options");
@@ -691,7 +944,9 @@
         state.vehicleOptions.body_styles = ["Sedan", "SUV", "Pickup", "Coupe", "Convertible", "Hatchback", "Minivan", "Van"];
         populateSelect("year", state.vehicleOptions.years, "Select year");
         populateSelect("make", [], "Enter make manually", true);
+        document.getElementById("make").value = CUSTOM_VALUE;
         setCustomMode("make", true);
+        syncSearchableSelect("make");
         populateSelect("bodyStyle", state.vehicleOptions.body_styles, "Select body style", true);
         setStatus("vinStatus", "Vehicle lists are offline. Manual entry is available.", true);
       }
@@ -721,7 +976,10 @@
         syncVehicleInputs();
       });
       ["makeOther", "modelOther", "trimOther", "bodyStyleOther"].forEach(id => {
-        document.getElementById(id).addEventListener("input", syncVehicleInputs);
+        document.getElementById(id).addEventListener("input", () => {
+          syncSearchableSelect(id.replace("Other", ""));
+          syncVehicleInputs();
+        });
       });
     }
 
@@ -734,23 +992,34 @@
         includeCustom ? `<option value="${CUSTOM_VALUE}">Not listed</option>` : ""
       ].join("");
       select.disabled = !normalized.length && !includeCustom;
+      syncSearchableSelect(id);
     }
 
     async function loadModels(preferredModel = "") {
       const make = selectedOrCustomValue("make");
       const year = document.getElementById("year").value;
       const modelSelect = document.getElementById("model");
+      const makeIsCustom = document.getElementById("make").value === CUSTOM_VALUE;
       populateSelect("model", [], make ? "Loading models" : "Select make first", true);
       populateSelect("trim", [], "Select model first", true);
+      modelSelect.disabled = true;
       document.getElementById("trim").disabled = true;
+      syncSearchableSelect("model");
+      syncSearchableSelect("trim");
       setCustomMode("model", false);
       setCustomMode("trim", false);
-      if (!make || document.getElementById("make").value === CUSTOM_VALUE) {
+      if (!make) {
+        syncVehicleInputs();
+        return;
+      }
+      if (makeIsCustom) {
         modelSelect.disabled = false;
+        syncSearchableSelect("model");
         if (preferredModel) {
           modelSelect.value = CUSTOM_VALUE;
           setCustomMode("model", true);
           document.getElementById("modelOther").value = preferredModel;
+          syncSearchableSelect("model");
         }
         return;
       }
@@ -763,8 +1032,10 @@
         setDropdownValue("model", preferredModel);
       } catch (error) {
         populateSelect("model", [], "Enter model manually", true);
+        document.getElementById("model").value = CUSTOM_VALUE;
         setCustomMode("model", true);
         if (preferredModel) document.getElementById("modelOther").value = preferredModel;
+        syncSearchableSelect("model");
       }
       syncVehicleInputs();
       loadTrims();
@@ -773,11 +1044,16 @@
     async function loadTrims(preferredTrim = "") {
       const make = selectedOrCustomValue("make");
       const model = selectedOrCustomValue("model");
+      const trimSelect = document.getElementById("trim");
       if (!model) {
         populateSelect("trim", [], "Select model first", true);
-        document.getElementById("trim").disabled = true;
+        trimSelect.disabled = true;
+        syncSearchableSelect("trim");
         return;
       }
+      populateSelect("trim", [], "Loading trims", true);
+      trimSelect.disabled = true;
+      syncSearchableSelect("trim");
       try {
         const params = new URLSearchParams({ make, model });
         const response = await fetch(`/api/vehicle-options/trims?${params.toString()}`);
@@ -787,8 +1063,10 @@
         setDropdownValue("trim", preferredTrim);
       } catch (error) {
         populateSelect("trim", [], "Enter trim manually", true);
+        document.getElementById("trim").value = CUSTOM_VALUE;
         setCustomMode("trim", true);
         if (preferredTrim) document.getElementById("trimOther").value = preferredTrim;
+        syncSearchableSelect("trim");
       }
       syncVehicleInputs();
     }
@@ -808,6 +1086,7 @@
         setCustomMode(id, true);
         custom.value = normalized;
       }
+      syncSearchableSelect(id);
     }
 
     function setCustomMode(id, enabled) {

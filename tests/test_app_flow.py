@@ -269,6 +269,11 @@ def test_public_vehicle_screen_has_dropdown_selectors(tmp_path):
     assert b'<select id="model">' in response.data
     assert b'<select id="trim">' in response.data
     assert b'<select id="bodyStyle">' in response.data
+    assert b'id="makeSearch"' in response.data
+    assert b'id="modelSearch"' in response.data
+    assert b'id="trimSearch"' in response.data
+    assert b'id="bodyStyleSearch"' in response.data
+    assert b'data-search-select="make"' in response.data
 
 
 def test_manual_dropdown_vehicle_can_be_valued_without_vin(tmp_path):
@@ -325,9 +330,11 @@ def test_vehicle_option_endpoints_have_fallbacks_without_live_nhtsa(tmp_path):
 
     assert options["ok"] is True
     assert options["source"] == "fallback"
+    assert options["makes"][:4] == ["TOYOTA", "HONDA", "FORD", "CHEVROLET"]
     assert "HONDA" in options["makes"]
     assert "SUV" in options["body_styles"]
     assert models["ok"] is True
+    assert models["models"][:3] == ["CR-V", "Civic", "Accord"]
     assert "Accord" in models["models"]
     assert trims["ok"] is True
     assert "Lariat" in trims["trims"]
