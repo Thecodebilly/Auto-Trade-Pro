@@ -60,6 +60,11 @@ def init_db(db_path: Path) -> None:
                 valuation_hold_days INTEGER NOT NULL DEFAULT 10,
                 max_retail_percent REAL NOT NULL DEFAULT 0.95,
                 crm_webhook_url TEXT NOT NULL DEFAULT '',
+                openai_api_key TEXT NOT NULL DEFAULT '',
+                openai_model TEXT NOT NULL DEFAULT 'gpt-4.1-mini',
+                openai_valuation_enabled INTEGER NOT NULL DEFAULT 0,
+                openai_image_analysis_enabled INTEGER NOT NULL DEFAULT 1,
+                openai_price_adjustment_limit_percent REAL NOT NULL DEFAULT 0.06,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -197,6 +202,17 @@ def init_db(db_path: Path) -> None:
             CREATE INDEX IF NOT EXISTS idx_market_snapshot_lookup
                 ON market_snapshots (region, make, model, year);
             """
+        )
+        _ensure_columns(
+            conn,
+            "dealers",
+            {
+                "openai_api_key": "TEXT NOT NULL DEFAULT ''",
+                "openai_model": "TEXT NOT NULL DEFAULT 'gpt-4.1-mini'",
+                "openai_valuation_enabled": "INTEGER NOT NULL DEFAULT 0",
+                "openai_image_analysis_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "openai_price_adjustment_limit_percent": "REAL NOT NULL DEFAULT 0.06",
+            },
         )
         conn.commit()
 
@@ -384,6 +400,11 @@ def update_dealer(db_path: Path, dealer_id: int, fields: dict[str, Any]) -> None
         "valuation_hold_days",
         "max_retail_percent",
         "crm_webhook_url",
+        "openai_api_key",
+        "openai_model",
+        "openai_valuation_enabled",
+        "openai_image_analysis_enabled",
+        "openai_price_adjustment_limit_percent",
     }
     assignments = []
     values: list[Any] = []
@@ -401,6 +422,18 @@ def update_dealer(db_path: Path, dealer_id: int, fields: dict[str, Any]) -> None
             tuple(values),
         )
         conn.commit()
+
+
+def _ensure_columns(
+    conn: sqlite3.Connection, table_name: str, columns: dict[str, str]
+) -> None:
+    existing = {
+        str(row["name"])
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column, declaration in columns.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {declaration}")
 
 
 def list_incentives(db_path: Path, dealer_id: int, active_only: bool = True) -> list[dict[str, Any]]:

@@ -55,6 +55,10 @@ Set production secrets in Railway variables, especially:
 
 If you attach a Railway volume, set `AUTOTRADE_DATA_DIR=/app/data` so SQLite data and uploads persist across deploys.
 
+## AI Valuation Assist
+
+Admins can optionally save an OpenAI API key in the dealer settings panel. When enabled, AutoTrade Pro sends the deterministic valuation context and uploaded vehicle photos to the OpenAI Responses API for a structured pricing sanity check and photo-condition digest. The AI review is advisory: offer changes are capped by the dealer's AI adjustment limit and still cannot exceed the retail cap.
+
 ## Docker
 
 ```bash
@@ -84,6 +88,8 @@ Common environment variables:
 - `AUTOTRADE_SMTP_*`: optional confirmation email delivery
 - `AUTOTRADE_SMS_WEBHOOK_URL`: optional SMS webhook
 - `AUTOTRADE_ENABLE_WORKER=1`: starts periodic CSV market refresh in-process
+
+OpenAI settings are managed in the admin UI per dealer so different stores can use different keys, models, and adjustment limits.
 
 ## Dealer Market CSV
 

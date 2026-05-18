@@ -275,6 +275,21 @@
               <label>Max retail percent<input name="max_retail_percent" type="number" step="0.01" value="{{ dealer.max_retail_percent }}"></label>
               <label class="full">CRM webhook URL<input name="crm_webhook_url" value="{{ dealer.crm_webhook_url }}"></label>
               <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="bonus_credit_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.bonus_credit_enabled %}checked{% endif %}> Booking bonus enabled</label>
+              <div class="full" style="border-top:1px solid var(--line); padding-top:14px; margin-top:6px;">
+                <h3>AI valuation assist</h3>
+                <p class="muted" style="margin:0 0 12px;">Optional OpenAI review can sanity-check pricing and digest uploaded vehicle photos. The deterministic valuation cap still applies.</p>
+              </div>
+              <label class="full">
+                OpenAI API key
+                <input name="openai_api_key" type="password" autocomplete="off" placeholder="{% if dealer.openai_api_key %}Key saved; leave blank to keep it{% else %}sk-...{% endif %}">
+              </label>
+              {% if dealer.openai_api_key %}
+                <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="clear_openai_api_key" type="checkbox" style="width:auto; min-height:auto;"> Clear saved OpenAI API key</label>
+              {% endif %}
+              <label>OpenAI model<input name="openai_model" value="{{ dealer.openai_model or 'gpt-4.1-mini' }}"></label>
+              <label>AI adjustment limit<input name="openai_price_adjustment_limit_percent" type="number" min="0" max="0.15" step="0.01" value="{{ dealer.openai_price_adjustment_limit_percent or 0.06 }}"></label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="openai_valuation_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.openai_valuation_enabled %}checked{% endif %}> Use AI to sanity-check trade value</label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="openai_image_analysis_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.openai_image_analysis_enabled %}checked{% endif %}> Let AI digest uploaded vehicle photos</label>
               <div class="full"><button class="btn" type="submit">Save dealer settings</button></div>
             </form>
           </section>

@@ -5,6 +5,7 @@ import json
 
 from autotrade_pro import create_app
 from autotrade_pro.config import AppConfig
+from autotrade_pro.database import fetch_dealer_by_slug, update_dealer
 
 
 def _app(tmp_path):
@@ -101,6 +102,7 @@ def test_admin_requires_login_and_renders_dashboard(tmp_path):
     assert login.status_code == 200
     assert b"Lead Dashboard" in login.data
     assert b"White Label Settings" in login.data
+    assert b"AI valuation assist" in login.data
 
 
 def test_public_vehicle_screen_has_dropdown_selectors(tmp_path):
@@ -177,6 +179,106 @@ def test_vehicle_option_endpoints_have_fallbacks_without_live_nhtsa(tmp_path):
     assert "Accord" in models["models"]
     assert trims["ok"] is True
     assert "Lariat" in trims["trims"]
+
+
+def test_ai_review_can_adjust_price_and_digest_photos(tmp_path, monkeypatch):
+    app = _app(tmp_path)
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+    update_dealer(
+        tmp_path / "autotrade.db",
+        dealer["id"],
+        {
+            "openai_api_key": "sk-test",
+            "openai_model": "gpt-4.1-mini",
+            "openai_valuation_enabled": 1,
+            "openai_image_analysis_enabled": 1,
+            "openai_price_adjustment_limit_percent": 0.08,
+        },
+    )
+
+    class FakeOpenAIResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "output_text": json.dumps(
+                    {
+                        "suggested_trade_offer": 20500,
+                        "suggested_low": 19800,
+                        "suggested_high": 21100,
+                        "confidence": 0.82,
+                        "apply_adjustment": True,
+                        "price_rationale": "Visible tire wear supports a slightly lower offer.",
+                        "value_consistency_notes": "Market data and mileage are broadly consistent.",
+                        "risk_flags": ["Confirm tire tread depth in person."],
+                        "image_findings": [
+                            {
+                                "label": "front",
+                                "observations": "Front view shows normal wear.",
+                                "damage_detected": False,
+                                "severity": "minor",
+                                "estimated_reconditioning_impact": 150,
+                            }
+                        ],
+                    }
+                )
+            }
+
+    calls = []
+
+    def fake_post(*args, **kwargs):
+        calls.append(kwargs["json"])
+        return FakeOpenAIResponse()
+
+    monkeypatch.setattr("autotrade_pro.ai_valuation.requests.post", fake_post)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/dealers/south-florida-demo/valuations",
+        data={
+            "vin": "",
+            "mileage": "35000",
+            "vehicle_json": json.dumps(
+                {
+                    "vin": "",
+                    "year": 2024,
+                    "make": "FORD",
+                    "model": "F-150",
+                    "trim": "Lariat",
+                    "body_style": "Pickup",
+                }
+            ),
+            "condition_json": json.dumps(
+                {
+                    "dents": "small",
+                    "interior": "clean",
+                    "warning_lights": "none",
+                    "tires": "19_36",
+                    "brakes": "7_18",
+                    "oil_change": "3_6",
+                }
+            ),
+            "photo_labels_json": json.dumps(["front"]),
+            "photos": [(BytesIO(b"fake image bytes"), "front.jpg")],
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    valuation = response.get_json()["valuation"]
+    assert calls
+    assert any(part["type"] == "input_image" for part in calls[0]["input"][1]["content"])
+    assert valuation["adjustments"]["ai_review"]["applied"] is True
+    assert valuation["adjustments"]["ai_review"]["suggested_trade_offer"] == 20500
+    assert valuation["trade_offer"] == valuation["adjustments"]["ai_review"]["adjusted_trade_offer"]
+    assert abs(
+        valuation["trade_offer"] - valuation["adjustments"]["ai_review"]["pre_ai_trade_offer"]
+    ) <= valuation["adjustments"]["ai_review"]["pre_ai_trade_offer"] * 0.08 + 50
+    assert valuation["trade_offer"] <= valuation["cap_value"]
+
+    status = client.get(f"/api/valuations/{valuation['public_id']}").get_json()
+    assert status["valuation"]["photo_summary"][0]["ai_findings"]["severity"] == "minor"
 
 
 def test_healthcheck_returns_ok(tmp_path):

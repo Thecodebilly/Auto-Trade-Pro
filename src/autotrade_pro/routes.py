@@ -26,6 +26,11 @@ from flask import (
 from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 
+from .ai_valuation import (
+    apply_ai_trade_review,
+    attach_ai_photo_findings,
+    request_ai_trade_review,
+)
 from .config import AppConfig
 from .crm import emit_crm_event
 from .database import (
@@ -178,6 +183,18 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             market=market,
         )
         photo_summary = _build_photo_summary(files, sanitized_labels)
+        ai_review = request_ai_trade_review(
+            dealer=dealer,
+            vehicle=vehicle,
+            mileage=mileage,
+            condition_answers=condition_answers,
+            photo_files=files,
+            photo_labels=sanitized_labels,
+            market=market,
+            result=result,
+        )
+        result = apply_ai_trade_review(result, ai_review, dealer)
+        photo_summary = attach_ai_photo_findings(photo_summary, ai_review)
         record = build_valuation_record(
             dealer=dealer,
             vehicle=vehicle,
@@ -324,7 +341,17 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             "valuation_hold_days": int(request.form.get("valuation_hold_days") or 10),
             "max_retail_percent": float(request.form.get("max_retail_percent") or 0.95),
             "crm_webhook_url": request.form.get("crm_webhook_url", ""),
+            "openai_model": request.form.get("openai_model", "gpt-4.1-mini"),
+            "openai_valuation_enabled": 1 if request.form.get("openai_valuation_enabled") else 0,
+            "openai_image_analysis_enabled": 1 if request.form.get("openai_image_analysis_enabled") else 0,
+            "openai_price_adjustment_limit_percent": _float_or_default(
+                request.form.get("openai_price_adjustment_limit_percent"), 0.06
+            ),
         }
+        if request.form.get("clear_openai_api_key"):
+            fields["openai_api_key"] = ""
+        elif request.form.get("openai_api_key", "").strip():
+            fields["openai_api_key"] = request.form.get("openai_api_key", "").strip()
         update_dealer(config.database_path, dealer_id, fields)
         return redirect(url_for("autotrade.admin_dashboard"))
 
@@ -471,6 +498,13 @@ def _int_or_none(value: object) -> int | None:
         return int(float(str(value).strip()))
     except (TypeError, ValueError):
         return None
+
+
+def _float_or_default(value: object, default: float) -> float:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return default
 
 
 def _labels_for_files(labels: Any, file_count: int) -> list[str]:
