@@ -29,6 +29,7 @@ from werkzeug.utils import secure_filename
 from .ai_valuation import (
     apply_ai_trade_review,
     attach_ai_photo_findings,
+    request_ai_pricing_reasoning,
     request_ai_trade_review,
 )
 from .config import AppConfig
@@ -242,6 +243,22 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             return jsonify({"ok": False, "error": "Valuation not found."}), 404
         return jsonify({"ok": True, "trend": build_trade_value_trend(valuation)})
 
+    @bp.post("/api/valuations/<public_id>/pricing-reasoning")
+    def valuation_pricing_reasoning(public_id: str) -> Response:
+        valuation = fetch_valuation_by_public_id(config.database_path, public_id)
+        if valuation is None:
+            return jsonify({"ok": False, "error": "Valuation not found."}), 404
+        dealer = fetch_dealer_by_slug(config.database_path, valuation["dealer_slug"])
+        if dealer is None:
+            return jsonify({"ok": False, "error": "Dealer not found."}), 404
+        reasoning = request_ai_pricing_reasoning(
+            dealer=dealer,
+            valuation=_valuation_payload(valuation),
+        )
+        if reasoning.get("error"):
+            return jsonify({"ok": False, "error": reasoning["error"], "reasoning": reasoning}), 400
+        return jsonify({"ok": True, "reasoning": reasoning})
+
     @bp.post("/api/valuations/<public_id>/appointments")
     def book_appointment(public_id: str) -> Response:
         valuation = fetch_valuation_by_public_id(config.database_path, public_id)
@@ -377,6 +394,9 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             "openai_image_analysis_enabled": 1 if request.form.get("openai_image_analysis_enabled") else 0,
             "openai_price_adjustment_limit_percent": _float_or_default(
                 request.form.get("openai_price_adjustment_limit_percent"), 0.06
+            ),
+            "openai_pricing_reasoning_preprompt": request.form.get(
+                "openai_pricing_reasoning_preprompt", ""
             ),
             "market_source_manheim_enabled": 1
             if request.form.get("market_source_manheim_enabled")

@@ -301,6 +301,10 @@
               <label>AI adjustment limit<input name="openai_price_adjustment_limit_percent" type="number" min="0" max="0.15" step="0.01" value="{{ dealer.openai_price_adjustment_limit_percent or 0.06 }}"></label>
               <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="openai_valuation_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.openai_valuation_enabled %}checked{% endif %}> Use AI to sanity-check trade value</label>
               <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="openai_image_analysis_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.openai_image_analysis_enabled %}checked{% endif %}> Let AI digest uploaded vehicle photos</label>
+              <label class="full">
+                Pricing reasoning preprompt
+                <textarea name="openai_pricing_reasoning_preprompt" rows="5" placeholder="Explain the estimate in a concise, transparent, customer-friendly way.">{{ dealer.openai_pricing_reasoning_preprompt or "" }}</textarea>
+              </label>
               <div class="full"><button class="btn" type="submit">Save dealer settings</button></div>
             </form>
           </section>

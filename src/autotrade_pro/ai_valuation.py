@@ -69,6 +69,46 @@ AI_REVIEW_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+AI_PRICING_REASONING_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "explanation": {"type": "string"},
+        "value_drivers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "impact": {
+                        "type": "string",
+                        "enum": ["positive", "negative", "neutral"],
+                    },
+                    "detail": {"type": "string"},
+                },
+                "required": ["label", "impact", "detail"],
+                "additionalProperties": False,
+            },
+        },
+        "confidence_note": {"type": "string"},
+        "disclaimer": {"type": "string"},
+    },
+    "required": [
+        "headline",
+        "explanation",
+        "value_drivers",
+        "confidence_note",
+        "disclaimer",
+    ],
+    "additionalProperties": False,
+}
+
+DEFAULT_PRICING_REASONING_PREPROMPT = (
+    "Explain the trade-in estimate in plain customer-friendly language. "
+    "Be specific about market data, mileage, condition, reconditioning, and caps. "
+    "Do not promise a final purchase price; say the in-store appraisal can adjust the offer."
+)
+
 
 def request_ai_trade_review(
     *,
@@ -148,6 +188,72 @@ def request_ai_trade_review(
             "applied": False,
         }
     return None
+
+
+def request_ai_pricing_reasoning(
+    *, dealer: dict[str, Any], valuation: dict[str, Any]
+) -> dict[str, Any]:
+    api_key = str(dealer.get("openai_api_key") or "").strip()
+    model = str(dealer.get("openai_model") or "gpt-4.1-mini").strip()
+    if not api_key:
+        return {
+            "error": "AI pricing reasoning needs an OpenAI API key in the admin settings.",
+            "model": model,
+        }
+
+    preprompt = str(
+        dealer.get("openai_pricing_reasoning_preprompt")
+        or DEFAULT_PRICING_REASONING_PREPROMPT
+    ).strip()
+    prompt = _pricing_reasoning_prompt(valuation)
+    payload = {
+        "model": model,
+        "input": [
+            {
+                "role": "system",
+                "content": (
+                    "You explain dealership trade-in estimates. "
+                    "Use only the supplied valuation record; do not invent external market values. "
+                    "Keep the answer concise, factual, and customer safe. "
+                    "Do not identify people or infer sensitive traits. "
+                    "Return only the requested structured JSON. "
+                    f"Dealer preprompt: {preprompt}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": [{"type": "input_text", "text": prompt}],
+            },
+        ],
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "pricing_reasoning",
+                "strict": True,
+                "schema": AI_PRICING_REASONING_SCHEMA,
+            }
+        },
+        "max_output_tokens": 900,
+    }
+    try:
+        response = requests.post(
+            OPENAI_RESPONSES_URL,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        parsed = _extract_json(data)
+        if isinstance(parsed, dict):
+            parsed["model"] = model
+            return parsed
+    except Exception as exc:
+        return {"error": str(exc), "model": model}
+    return {"error": "AI pricing reasoning did not return a usable response.", "model": model}
 
 
 def apply_ai_trade_review(
@@ -244,6 +350,44 @@ def _prompt(
         "If photos are present, digest visible damage, warning-light clues, tire/brake clues, "
         "interior wear, and anything that could affect reconditioning cost. "
         f"Input JSON:\n{json.dumps(payload, separators=(',', ':'), sort_keys=True)}"
+    )
+
+
+def _pricing_reasoning_prompt(valuation: dict[str, Any]) -> str:
+    payload = {
+        "vehicle": {
+            "vin_present": bool(valuation.get("vin")),
+            "year": valuation.get("year"),
+            "make": valuation.get("make"),
+            "model": valuation.get("model"),
+            "trim": valuation.get("trim"),
+            "body_style": valuation.get("body_style"),
+            "mileage": valuation.get("mileage"),
+        },
+        "offer": {
+            "trade_offer": valuation.get("trade_offer"),
+            "valuation_low": valuation.get("valuation_low"),
+            "valuation_high": valuation.get("valuation_high"),
+            "cap_value": valuation.get("cap_value"),
+            "retail_market_value": valuation.get("retail_market_value"),
+            "auction_wholesale_value": valuation.get("auction_wholesale_value"),
+            "comparable_value": valuation.get("comparable_value"),
+            "condition_grade": valuation.get("condition_grade"),
+            "condition_score": valuation.get("condition_score"),
+            "data_quality_score": valuation.get("data_quality_score"),
+        },
+        "condition_answers": valuation.get("condition_answers") or {},
+        "photo_summary": valuation.get("photo_summary") or [],
+        "adjustments": valuation.get("adjustments") or {},
+        "source_breakdown": valuation.get("source_breakdown") or {},
+        "source_data": valuation.get("source_data") or {},
+    }
+    return (
+        "Generate a concise pricing-reasoning explanation for the customer. "
+        "Explain why the estimate landed where it did, what data pushed it up or down, "
+        "and what could change at the final in-person appraisal. "
+        "Do not include hidden IDs, internal implementation details, or unsupported claims. "
+        f"Valuation JSON:\n{json.dumps(payload, separators=(',', ':'), sort_keys=True)}"
     )
 
 

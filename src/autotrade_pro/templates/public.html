@@ -352,6 +352,16 @@
       margin-top: 12px;
     }
     .trend-note { margin-top: 12px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .reasoning-copy { color: #344351; line-height: 1.55; margin: 0 0 14px; }
+    .reasoning-list { display: grid; gap: 10px; }
+    .reasoning-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+    .reasoning-item strong { display: block; }
+    .reasoning-item span { color: var(--muted); font-size: 13px; line-height: 1.45; }
     .side-panel {
       border-radius: 8px;
       padding: 20px;
@@ -566,6 +576,7 @@
                 <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
                 <div class="right">
                   <button class="primary" id="calculateBtn" type="button"><i data-lucide="calculator"></i> Calculate Offer</button>
+                  <button class="secondary" id="reasoningBtn" type="button" hidden><i data-lucide="sparkles"></i> Reasoning</button>
                   <button class="secondary" id="trendBtn" type="button" hidden><i data-lucide="trending-down"></i> Trends</button>
                   <button class="secondary" id="toAppointmentBtn" type="button" hidden><i data-lucide="calendar-plus"></i> Book Appointment</button>
                 </div>
@@ -634,6 +645,21 @@
     </div>
   </div>
 
+  <div class="trend-modal" id="reasoningModal" hidden>
+    <div class="trend-dialog" role="dialog" aria-modal="true" aria-labelledby="reasoningTitle">
+      <div class="trend-head">
+        <div>
+          <h2 id="reasoningTitle">Pricing Reasoning</h2>
+          <div class="muted" id="reasoningSubtitle" style="margin-top:4px;">AI-generated estimate explanation</div>
+        </div>
+        <button class="ghost icon-only" id="reasoningCloseBtn" type="button" aria-label="Close reasoning"><i data-lucide="x"></i></button>
+      </div>
+      <div class="trend-body">
+        <div id="reasoningContent" class="reasoning-copy">Ready.</div>
+      </div>
+    </div>
+  </div>
+
   <script>
     window.AUTOTRADE = {
       dealer: {{ dealer|tojson }},
@@ -681,8 +707,13 @@
       document.getElementById("calculateBtn").addEventListener("click", calculateOffer);
       document.getElementById("trendBtn").addEventListener("click", openTrend);
       document.getElementById("trendCloseBtn").addEventListener("click", closeTrend);
+      document.getElementById("reasoningBtn").addEventListener("click", openPricingReasoning);
+      document.getElementById("reasoningCloseBtn").addEventListener("click", closePricingReasoning);
       document.getElementById("trendModal").addEventListener("click", event => {
         if (event.target.id === "trendModal") closeTrend();
+      });
+      document.getElementById("reasoningModal").addEventListener("click", event => {
+        if (event.target.id === "reasoningModal") closePricingReasoning();
       });
       document.getElementById("toAppointmentBtn").addEventListener("click", () => go(6));
       document.getElementById("bookBtn").addEventListener("click", bookAppointment);
@@ -1304,7 +1335,47 @@
         <span>Valid through ${formatDate(state.valuation.offer_expires_at)}</span>
       `;
       document.getElementById("trendBtn").hidden = false;
+      document.getElementById("reasoningBtn").hidden = false;
       document.getElementById("toAppointmentBtn").hidden = false;
+    }
+
+    async function openPricingReasoning() {
+      if (!state.valuation) return setStatus("valuationStatus", "Calculate an offer first.", true);
+      const modal = document.getElementById("reasoningModal");
+      modal.hidden = false;
+      document.getElementById("reasoningContent").innerHTML = `<div class="metric"><span>Loading</span><strong>AI reasoning</strong></div>`;
+      document.getElementById("reasoningSubtitle").textContent = vehicleName(state.vehicle) || "AI-generated estimate explanation";
+      if (window.lucide) window.lucide.createIcons();
+      try {
+        const response = await fetch(`/api/valuations/${encodeURIComponent(state.valuation.public_id)}/pricing-reasoning`, { method: "POST" });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Pricing reasoning unavailable.");
+        renderPricingReasoning(payload.reasoning || {});
+      } catch (error) {
+        document.getElementById("reasoningContent").innerHTML = `<div class="status-line error">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    function closePricingReasoning() {
+      document.getElementById("reasoningModal").hidden = true;
+    }
+
+    function renderPricingReasoning(reasoning) {
+      const drivers = Array.isArray(reasoning.value_drivers) ? reasoning.value_drivers : [];
+      document.getElementById("reasoningContent").innerHTML = `
+        <h3 style="margin:0 0 8px;">${escapeHtml(reasoning.headline || "Estimate reasoning")}</h3>
+        <p class="reasoning-copy">${escapeHtml(reasoning.explanation || "")}</p>
+        <div class="reasoning-list">
+          ${drivers.map(driver => `
+            <div class="reasoning-item">
+              <strong>${escapeHtml(driver.label || "Value driver")} · ${escapeHtml(driver.impact || "neutral")}</strong>
+              <span>${escapeHtml(driver.detail || "")}</span>
+            </div>
+          `).join("")}
+        </div>
+        <p class="trend-note">${escapeHtml(reasoning.confidence_note || "")}</p>
+        <p class="trend-note">${escapeHtml(reasoning.disclaimer || "")}</p>
+      `;
     }
 
     async function openTrend() {

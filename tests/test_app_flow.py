@@ -125,9 +125,139 @@ def test_admin_requires_login_and_renders_dashboard(tmp_path):
     assert b"Lead Dashboard" in login.data
     assert b"White Label Settings" in login.data
     assert b"AI valuation assist" in login.data
+    assert b"Pricing reasoning preprompt" in login.data
     assert b"Valuation source data" in login.data
     assert b"Kelley Blue Book" in login.data
     assert b"/admin/dashboard" in login.data
+
+
+def test_admin_can_save_pricing_reasoning_preprompt(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+
+    client.post("/admin/login", data={"password": "test-pass"})
+    response = client.post(
+        f"/admin/dealer/{dealer['id']}",
+        data={
+            "name": dealer["name"],
+            "legal_name": dealer["legal_name"],
+            "logo_url": dealer["logo_url"],
+            "hero_image_url": dealer["hero_image_url"],
+            "primary_color": dealer["primary_color"],
+            "accent_color": dealer["accent_color"],
+            "phone": dealer["phone"],
+            "email": dealer["email"],
+            "address_line1": dealer["address_line1"],
+            "city": dealer["city"],
+            "state": dealer["state"],
+            "postal_code": dealer["postal_code"],
+            "appointment_timezone": dealer["appointment_timezone"],
+            "bonus_credit_enabled": "on",
+            "bonus_credit_amount": str(dealer["bonus_credit_amount"]),
+            "valuation_hold_days": str(dealer["valuation_hold_days"]),
+            "max_retail_percent": str(dealer["max_retail_percent"]),
+            "crm_webhook_url": dealer["crm_webhook_url"],
+            "openai_model": dealer["openai_model"],
+            "openai_price_adjustment_limit_percent": str(dealer["openai_price_adjustment_limit_percent"]),
+            "openai_image_analysis_enabled": "on",
+            "openai_pricing_reasoning_preprompt": "Use a warm but direct sales manager voice.",
+            "market_source_kbb_enabled": "on",
+            "market_source_manheim_enabled": "on",
+            "market_source_jd_power_enabled": "on",
+            "market_source_black_book_enabled": "on",
+            "market_source_dealer_import_enabled": "on",
+            "market_source_demo_fallback_enabled": "on",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    updated = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+    assert updated["openai_pricing_reasoning_preprompt"] == "Use a warm but direct sales manager voice."
+
+
+def test_pricing_reasoning_endpoint_uses_openai_and_admin_preprompt(tmp_path, monkeypatch):
+    app = _app(tmp_path)
+    client = app.test_client()
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+    update_dealer(
+        tmp_path / "autotrade.db",
+        dealer["id"],
+        {
+            "openai_api_key": "sk-test",
+            "openai_model": "gpt-test",
+            "openai_pricing_reasoning_preprompt": "Use service-lane language.",
+        },
+    )
+    valuation_response = client.post(
+        "/api/dealers/south-florida-demo/valuations",
+        data={
+            "vin": "",
+            "mileage": "51000",
+            "vehicle_json": json.dumps(
+                {
+                    "vin": "",
+                    "year": 2022,
+                    "make": "TOYOTA",
+                    "model": "RAV4",
+                    "trim": "XLE",
+                    "body_style": "SUV",
+                }
+            ),
+            "condition_json": json.dumps(
+                {
+                    "dents": "none",
+                    "interior": "clean",
+                    "warning_lights": "none",
+                    "tires": "7_18",
+                    "brakes": "7_18",
+                    "oil_change": "3_6",
+                }
+            ),
+            "photo_labels_json": json.dumps([]),
+        },
+    )
+    public_id = valuation_response.get_json()["valuation"]["public_id"]
+    captured: dict[str, object] = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "output_text": json.dumps(
+                    {
+                        "headline": "Market-backed trade estimate",
+                        "explanation": "The offer reflects mileage, condition, and regional trade data.",
+                        "value_drivers": [
+                            {
+                                "label": "Mileage",
+                                "impact": "negative",
+                                "detail": "Mileage is above the expected baseline.",
+                            }
+                        ],
+                        "confidence_note": "Confidence is based on available source data.",
+                        "disclaimer": "Final appraisal may change after inspection.",
+                    }
+                )
+            }
+
+    def fake_post(*args, **kwargs):
+        captured["json"] = kwargs["json"]
+        return FakeResponse()
+
+    monkeypatch.setattr("autotrade_pro.ai_valuation.requests.post", fake_post)
+    response = client.post(f"/api/valuations/{public_id}/pricing-reasoning")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["reasoning"]["headline"] == "Market-backed trade estimate"
+    assert payload["reasoning"]["model"] == "gpt-test"
+    request_payload = captured["json"]
+    assert request_payload["model"] == "gpt-test"
+    assert "Use service-lane language." in request_payload["input"][0]["content"]
 
 
 def test_admin_visual_dashboard_renders_charts_and_metrics(tmp_path):
@@ -281,6 +411,8 @@ def test_public_vehicle_screen_has_dropdown_selectors(tmp_path):
     assert b'id="trimSearch"' in response.data
     assert b'id="bodyStyleSearch"' in response.data
     assert b'data-search-select="make"' in response.data
+    assert b'id="reasoningBtn"' in response.data
+    assert b'id="reasoningModal"' in response.data
     assert b"Refreshing offer record before booking" in response.data
     assert b"isMissingValuationError" in response.data
 
