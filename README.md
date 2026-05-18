@@ -56,7 +56,7 @@ Set production secrets in Railway variables, especially:
 - `AUTOTRADE_ADMIN_PASSWORD`
 - Optional CRM, SMTP, SMS, and licensed valuation feed variables from `.env.example`
 
-The Docker/Railway image sets `AUTOTRADE_REQUIRE_DATABASE_URL=1`, so production startup fails if a Postgres URL is missing instead of silently using SQLite. If you attach a Railway volume, set `AUTOTRADE_DATA_DIR=/app/data` so uploads persist across deploys; leads, appointments, and market imports should live in Postgres.
+Railway starts the app with `AUTOTRADE_REQUIRE_DATABASE_URL=1`, so production startup fails if a Postgres URL is missing instead of silently using SQLite. If you attach a Railway volume, set `AUTOTRADE_DATA_DIR=/app/data` so uploads persist across deploys; leads, appointments, and market imports should live in Postgres.
 
 ## AI Valuation Assist
 

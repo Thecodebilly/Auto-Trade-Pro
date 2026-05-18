@@ -3,7 +3,6 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV AUTOTRADE_REQUIRE_DATABASE_URL=1
 
 WORKDIR /app
 
@@ -13,7 +12,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server.py .
 COPY wsgi.py .
 COPY src/ src/
-COPY scripts/ scripts/
 RUN pip install --no-cache-dir --no-deps .
 
 RUN mkdir -p /app/data
