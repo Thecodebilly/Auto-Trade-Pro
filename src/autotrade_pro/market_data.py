@@ -138,16 +138,9 @@ class MarketDataAggregator:
             year=year,
             region=region,
         )
+        rows = _prefer_matching_model_rows(rows, vehicle.get("model", ""))
         return [
-            MarketSignal(
-                source=row["source"],
-                retail_value=int(row["retail_value"]),
-                wholesale_value=int(row["wholesale_value"]),
-                sample_size=int(row["sample_size"]),
-                days_supply=int(row["days_supply"]),
-                confidence=float(row["confidence"]),
-                raw=_safe_json(row.get("raw_json")),
-            )
+            _local_signal_from_row(row, vehicle)
             for row in rows
             if _is_local_source_enabled(row["source"], source_settings)
         ]
@@ -307,6 +300,93 @@ def _weighted_average(values: list[tuple[int, float]]) -> int:
     numerator = sum(value * max(weight, 0.1) for value, weight in values)
     denominator = sum(max(weight, 0.1) for _, weight in values)
     return int(round(numerator / denominator / 50) * 50)
+
+
+def _prefer_matching_model_rows(
+    rows: list[dict[str, Any]], model: object
+) -> list[dict[str, Any]]:
+    model_key = _model_key(str(model or ""))
+    if not model_key:
+        return rows
+    matching = [row for row in rows if _model_key(str(row.get("model") or "")) == model_key]
+    return matching or rows
+
+
+def _local_signal_from_row(
+    row: dict[str, Any], vehicle: dict[str, Any]
+) -> MarketSignal:
+    retail_value, wholesale_value, raw, confidence = _normalize_local_snapshot(
+        row,
+        vehicle,
+        retail_value=int(row["retail_value"]),
+        wholesale_value=int(row["wholesale_value"]),
+        confidence=float(row["confidence"]),
+    )
+    return MarketSignal(
+        source=row["source"],
+        retail_value=retail_value,
+        wholesale_value=wholesale_value,
+        sample_size=int(row["sample_size"]),
+        days_supply=int(row["days_supply"]),
+        confidence=confidence,
+        raw=raw,
+    )
+
+
+def _normalize_local_snapshot(
+    row: dict[str, Any],
+    vehicle: dict[str, Any],
+    *,
+    retail_value: int,
+    wholesale_value: int,
+    confidence: float,
+) -> tuple[int, int, dict[str, Any], float]:
+    raw = _safe_json(row.get("raw_json"))
+    source_year = _int_or_none(row.get("year"))
+    target_year = _int_or_none(vehicle.get("year"))
+    if not source_year or not target_year or source_year == target_year:
+        return retail_value, wholesale_value, raw, confidence
+
+    current_year = datetime.now(timezone.utc).year
+    source_age = max(0, current_year - source_year)
+    target_age = max(0, current_year - target_year)
+    if target_age <= source_age:
+        return retail_value, wholesale_value, raw, confidence
+
+    age_ratio = _age_value_factor(target_age) / max(_age_value_factor(source_age), 0.1)
+    age_ratio = max(0.3, min(1.0, age_ratio))
+    wholesale_ratio = max(0.26, age_ratio * (1 - min(0.25, (target_age - source_age) * 0.025)))
+    normalized_retail = _round_to_50(max(3500, retail_value * age_ratio))
+    normalized_wholesale = _round_to_50(max(2500, wholesale_value * wholesale_ratio))
+    raw = {
+        **raw,
+        "normalization": {
+            "source_year": source_year,
+            "target_year": target_year,
+            "source_age": source_age,
+            "target_age": target_age,
+            "retail_age_ratio": round(age_ratio, 3),
+            "wholesale_age_ratio": round(wholesale_ratio, 3),
+            "original_retail_value": retail_value,
+            "original_wholesale_value": wholesale_value,
+            "reason": "Adjusted newer snapshot values down to the submitted vehicle year.",
+        },
+    }
+    confidence = max(0.35, round(confidence - min(0.18, (target_age - source_age) * 0.02), 2))
+    return normalized_retail, normalized_wholesale, raw, confidence
+
+
+def _age_value_factor(age: int) -> float:
+    depreciation = min(0.74, 0.105 * age + 0.02 * max(age - 4, 0))
+    return max(0.24, 1 - depreciation)
+
+
+def _round_to_50(value: float) -> int:
+    return int(round(value / 50) * 50)
+
+
+def _model_key(model: str) -> str:
+    return "".join(char for char in model.upper() if char.isalnum())
 
 
 def _market_source_settings(dealer: dict[str, Any] | None) -> dict[str, bool]:
