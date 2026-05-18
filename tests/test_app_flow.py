@@ -389,6 +389,60 @@ def test_kbb_source_can_be_used_and_toggled_for_estimates(tmp_path, monkeypatch)
     assert "Kelley Blue Book" in " ".join(disabled["source_breakdown"]["notes"])
 
 
+def test_older_high_mileage_crv_snapshot_values_are_normalized(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/dealers/south-florida-demo/valuations",
+        data={
+            "vin": "",
+            "mileage": "150000",
+            "vehicle_json": json.dumps(
+                {
+                    "vin": "",
+                    "year": 2016,
+                    "make": "HONDA",
+                    "model": "CR-V",
+                    "trim": "Base",
+                    "body_style": "SUV",
+                }
+            ),
+            "condition_json": json.dumps(
+                {
+                    "dents": "none",
+                    "interior": "clean",
+                    "warning_lights": "none",
+                    "tires": "0_6",
+                    "brakes": "0_6",
+                    "oil_change": "0_3",
+                }
+            ),
+            "photo_labels_json": json.dumps(["front", "rear", "interior", "dash", "tires"]),
+            "photos": [
+                (BytesIO(b"front"), "front.jpg"),
+                (BytesIO(b"rear"), "rear.jpg"),
+                (BytesIO(b"interior"), "interior.jpg"),
+                (BytesIO(b"dash"), "dash.jpg"),
+                (BytesIO(b"tires"), "tires.jpg"),
+            ],
+        },
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 200
+    valuation = response.get_json()["valuation"]
+    signals = valuation["source_breakdown"]["signals"]
+
+    assert 8500 <= valuation["trade_offer"] <= 12000
+    assert valuation["retail_market_value"] <= 15000
+    assert {signal["raw"]["normalization"]["target_year"] for signal in signals} == {2016}
+    assert {signal["source"] for signal in signals} == {
+        "kelley_blue_book_demo",
+        "manheim_mmr_demo",
+    }
+
+
 def test_ai_review_can_adjust_price_and_digest_photos(tmp_path, monkeypatch):
     app = _app(tmp_path)
     dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
