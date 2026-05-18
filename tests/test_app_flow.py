@@ -274,6 +274,8 @@ def test_public_vehicle_screen_has_dropdown_selectors(tmp_path):
     assert b'id="trimSearch"' in response.data
     assert b'id="bodyStyleSearch"' in response.data
     assert b'data-search-select="make"' in response.data
+    assert b"Refreshing offer record before booking" in response.data
+    assert b"isMissingValuationError" in response.data
 
 
 def test_manual_dropdown_vehicle_can_be_valued_without_vin(tmp_path):

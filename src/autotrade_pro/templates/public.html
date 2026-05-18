@@ -1247,13 +1247,29 @@
     }
 
     async function calculateOffer() {
-      syncVehicleInputs();
       const button = document.getElementById("calculateBtn");
       const status = document.getElementById("valuationStatus");
       button.disabled = true;
       button.innerHTML = `<span class="spinner"></span> Calculating`;
       status.className = "status-line";
       status.textContent = "Aggregating market signals and condition scoring...";
+      try {
+        await submitValuation();
+        renderValuationOffer();
+        status.className = "status-line success";
+        status.textContent = "Offer ready. Book in-app to secure priority scheduling.";
+      } catch (error) {
+        status.className = "status-line error";
+        status.textContent = error.message;
+      } finally {
+        button.disabled = false;
+        button.innerHTML = `<i data-lucide="calculator"></i> Recalculate`;
+        update();
+      }
+    }
+
+    function buildValuationFormData() {
+      syncVehicleInputs();
       const formData = new FormData();
       formData.append("vin", document.getElementById("vin").value.trim().toUpperCase());
       formData.append("mileage", document.getElementById("mileage").value.trim());
@@ -1267,31 +1283,28 @@
         }
       });
       formData.append("photo_labels_json", JSON.stringify(labels));
+      return formData;
+    }
 
-      try {
-        const response = await fetch(`/api/dealers/${window.AUTOTRADE.dealer.slug}/valuations`, { method: "POST", body: formData });
-        const payload = await response.json();
-        if (!response.ok || !payload.ok) throw new Error(payload.error || "Valuation failed.");
-        state.valuation = payload.valuation;
-        document.getElementById("offerBand").hidden = false;
-        document.getElementById("offerValue").textContent = money.format(state.valuation.trade_offer);
-        document.getElementById("offerMeta").innerHTML = `
-          <span>Range ${money.format(state.valuation.valuation_low)}-${money.format(state.valuation.valuation_high)}</span>
-          <span>${state.valuation.condition_grade}</span>
-          <span>Valid through ${formatDate(state.valuation.offer_expires_at)}</span>
-        `;
-        status.className = "status-line success";
-        status.textContent = "Offer ready. Book in-app to secure priority scheduling.";
-        document.getElementById("trendBtn").hidden = false;
-        document.getElementById("toAppointmentBtn").hidden = false;
-      } catch (error) {
-        status.className = "status-line error";
-        status.textContent = error.message;
-      } finally {
-        button.disabled = false;
-        button.innerHTML = `<i data-lucide="calculator"></i> Recalculate`;
-        update();
-      }
+    async function submitValuation() {
+      const response = await fetch(`/api/dealers/${window.AUTOTRADE.dealer.slug}/valuations`, { method: "POST", body: buildValuationFormData() });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || "Valuation failed.");
+      state.valuation = payload.valuation;
+      return state.valuation;
+    }
+
+    function renderValuationOffer() {
+      if (!state.valuation) return;
+      document.getElementById("offerBand").hidden = false;
+      document.getElementById("offerValue").textContent = money.format(state.valuation.trade_offer);
+      document.getElementById("offerMeta").innerHTML = `
+        <span>Range ${money.format(state.valuation.valuation_low)}-${money.format(state.valuation.valuation_high)}</span>
+        <span>${state.valuation.condition_grade}</span>
+        <span>Valid through ${formatDate(state.valuation.offer_expires_at)}</span>
+      `;
+      document.getElementById("trendBtn").hidden = false;
+      document.getElementById("toAppointmentBtn").hidden = false;
     }
 
     async function openTrend() {
@@ -1302,7 +1315,7 @@
       document.getElementById("trendAssumptions").textContent = "";
       if (window.lucide) window.lucide.createIcons();
       try {
-        const response = await fetch(`/api/valuations/${state.valuation.public_id}/trend`);
+        const response = await fetch(`/api/valuations/${encodeURIComponent(state.valuation.public_id)}/trend`);
         const payload = await response.json();
         if (!response.ok || !payload.ok) throw new Error(payload.error || "Trend unavailable.");
         renderTrend(payload.trend);
@@ -1434,13 +1447,16 @@
       status.className = "status-line";
       status.textContent = "Booking appointment...";
       try {
-        const response = await fetch(`/api/valuations/${state.valuation.public_id}/appointments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        });
-        const result = await response.json();
-        if (!response.ok || !result.ok) throw new Error(result.error || "Appointment booking failed.");
+        let result;
+        try {
+          result = await submitAppointment(payload);
+        } catch (error) {
+          if (!isMissingValuationError(error)) throw error;
+          status.textContent = "Refreshing offer record before booking...";
+          await submitValuation();
+          renderValuationOffer();
+          result = await submitAppointment(payload);
+        }
         state.appointment = result.valuation;
         renderConfirmation(result.valuation);
         go(7);
@@ -1448,6 +1464,31 @@
         status.className = "status-line error";
         status.textContent = error.message;
       }
+    }
+
+    async function submitAppointment(payload) {
+      const publicId = state.valuation && state.valuation.public_id;
+      if (!publicId) {
+        const error = new Error("Valuation record is missing.");
+        error.code = "missing_valuation";
+        throw error;
+      }
+      const response = await fetch(`/api/valuations/${encodeURIComponent(publicId)}/appointments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        const error = new Error(result.error || "Appointment booking failed.");
+        error.status = response.status;
+        throw error;
+      }
+      return result;
+    }
+
+    function isMissingValuationError(error) {
+      return error && (error.code === "missing_valuation" || error.status === 404);
     }
 
     function renderConfirmation(valuation) {
