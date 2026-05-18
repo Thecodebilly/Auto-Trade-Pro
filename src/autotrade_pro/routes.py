@@ -51,6 +51,7 @@ from .database import (
 )
 from .market_data import MarketDataAggregator
 from .notifications import send_confirmation
+from .trends import build_trade_value_trend
 from .valuation import build_valuation_record, calculate_valuation
 from .vehicle_options import BODY_STYLES, VehicleOptionsClient
 from .vin import NhtsaVinDecoder, VinDecodeError, fallback_decode, normalize_vin
@@ -232,6 +233,13 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         if valuation is None:
             return jsonify({"ok": False, "error": "Valuation not found."}), 404
         return jsonify({"ok": True, "valuation": _valuation_payload(valuation)})
+
+    @bp.get("/api/valuations/<public_id>/trend")
+    def valuation_trend(public_id: str) -> Response:
+        valuation = fetch_valuation_by_public_id(config.database_path, public_id)
+        if valuation is None:
+            return jsonify({"ok": False, "error": "Valuation not found."}), 404
+        return jsonify({"ok": True, "trend": build_trade_value_trend(valuation)})
 
     @bp.post("/api/valuations/<public_id>/appointments")
     def book_appointment(public_id: str) -> Response:

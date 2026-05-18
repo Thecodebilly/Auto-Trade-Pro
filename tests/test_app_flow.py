@@ -71,6 +71,19 @@ def test_public_valuation_and_appointment_flow(tmp_path):
     assert valuation["trade_offer"] <= valuation["cap_value"]
     assert valuation["public_id"].startswith("ATP-")
 
+    trend_response = client.get(f"/api/valuations/{valuation['public_id']}/trend")
+    assert trend_response.status_code == 200
+    trend = trend_response.get_json()["trend"]
+    assert trend["normal_annual_miles"] == 12000
+    assert len(trend["points"]) == 6
+    assert trend["points"][0]["trade_value"] == valuation["trade_offer"]
+    assert trend["points"][0]["projected"] is False
+    assert all(point["projected"] for point in trend["points"][1:])
+    assert trend["points"][-1]["year_offset"] == 5
+    assert trend["points"][-1]["mileage"] == 42000 + 60000
+    projected_values = [point["trade_value"] for point in trend["points"]]
+    assert projected_values == sorted(projected_values, reverse=True)
+
     appointment_response = client.post(
         f"/api/valuations/{valuation['public_id']}/appointments",
         json={
