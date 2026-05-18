@@ -1332,12 +1332,16 @@
       const points = trend.points || [];
       if (!points.length) return;
       const vehicle = trend.vehicle || {};
-      document.getElementById("trendSubtitle").textContent = vehicleName(vehicle) || "Normal usage projection";
-      const now = points[0];
+      document.getElementById("trendSubtitle").textContent = vehicleName(vehicle) || "Historical estimate and normal usage projection";
+      const now = points.find(point => point.year_offset === 0) || points[0];
+      const start = points[0];
       const end = points[points.length - 1];
+      const historyYears = trend.history_years || Math.abs(start.year_offset || 0);
+      const projectionYears = trend.projection_years || Math.max(0, end.year_offset || 0);
       document.getElementById("trendSummary").innerHTML = [
+        [`${historyYears}-year history`, money.format(start.trade_value)],
         ["Current", money.format(now.trade_value)],
-        ["5-year projection", money.format(end.trade_value)],
+        [`${projectionYears}-year projection`, money.format(end.trade_value)],
         ["Normal usage", `${(trend.normal_annual_miles || 12000).toLocaleString()} mi/yr`]
       ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("");
       document.getElementById("trendAssumptions").textContent = (trend.assumptions || []).join(" ");
@@ -1387,37 +1391,59 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
       points.forEach((point, index) => {
+        const offset = point.year_offset || 0;
+        const denseLabels = points.length > 9 || width < 620;
+        if (denseLabels && index !== 0 && index !== points.length - 1 && offset !== 0 && index % 2 !== 0) return;
         const x = xFor(index);
         ctx.fillText(point.label, x, height - pad.bottom + 18);
       });
 
       const coordinates = points.map((point, index) => [xFor(index), yFor(point.trade_value)]);
-      ctx.strokeStyle = window.getComputedStyle(document.documentElement).getPropertyValue("--primary").trim() || "#184E77";
-      ctx.lineWidth = 3;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(coordinates[0][0], coordinates[0][1]);
-      ctx.lineTo(coordinates[0][0] + 1, coordinates[0][1]);
-      ctx.stroke();
-
-      ctx.setLineDash([6, 7]);
-      ctx.beginPath();
-      coordinates.forEach(([x, y], index) => {
-        if (index === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      coordinates.forEach(([x, y], index) => {
+      const primaryColor = window.getComputedStyle(document.documentElement).getPropertyValue("--primary").trim() || "#184E77";
+      const currentIndex = Math.max(0, points.findIndex(point => point.year_offset === 0));
+      if (coordinates[currentIndex]) {
+        ctx.strokeStyle = "#bbd7ca";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 5]);
         ctx.beginPath();
-        ctx.fillStyle = index === 0 ? "#227c5a" : "#ffffff";
-        ctx.strokeStyle = index === 0 ? "#227c5a" : window.getComputedStyle(document.documentElement).getPropertyValue("--primary").trim() || "#184E77";
+        ctx.moveTo(coordinates[currentIndex][0], pad.top);
+        ctx.lineTo(coordinates[currentIndex][0], height - pad.bottom);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 3;
+      coordinates.forEach(([x, y], index) => {
+        if (index === 0) return;
+        const previous = coordinates[index - 1];
+        const futureSegment = (points[index - 1].year_offset || 0) >= 0 && (points[index].year_offset || 0) > 0;
+        ctx.setLineDash(futureSegment ? [6, 7] : []);
+        ctx.beginPath();
+        ctx.moveTo(previous[0], previous[1]);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+      });
+      ctx.setLineDash([]);
+
+      coordinates.forEach(([x, y], index) => {
+        const point = points[index];
+        const isCurrent = (point.year_offset || 0) === 0;
+        ctx.beginPath();
+        ctx.fillStyle = isCurrent ? "#227c5a" : "#ffffff";
+        ctx.strokeStyle = isCurrent ? "#227c5a" : primaryColor;
         ctx.lineWidth = 3;
-        ctx.arc(x, y, index === 0 ? 6 : 5, 0, Math.PI * 2);
+        ctx.arc(x, y, isCurrent ? 6 : 5, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       });
+
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillStyle = "#40505f";
+      ctx.font = "12px Inter, system-ui, sans-serif";
+      if (coordinates[currentIndex]) {
+        ctx.fillText("Current", coordinates[currentIndex][0], pad.top - 8);
+      }
     }
 
     function readCondition() {

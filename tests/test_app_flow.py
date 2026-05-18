@@ -77,14 +77,21 @@ def test_public_valuation_and_appointment_flow(tmp_path):
     assert trend_response.status_code == 200
     trend = trend_response.get_json()["trend"]
     assert trend["normal_annual_miles"] == 12000
-    assert len(trend["points"]) == 6
-    assert trend["points"][0]["trade_value"] == valuation["trade_offer"]
-    assert trend["points"][0]["projected"] is False
-    assert all(point["projected"] for point in trend["points"][1:])
+    assert trend["history_years"] == 5
+    assert trend["projection_years"] == 5
+    assert len(trend["points"]) == 11
+    now_point = next(point for point in trend["points"] if point["year_offset"] == 0)
+    assert now_point["trade_value"] == valuation["trade_offer"]
+    assert now_point["projected"] is False
+    assert now_point["historical"] is False
+    assert all(point["historical"] for point in trend["points"] if point["year_offset"] < 0)
+    assert all(point["projected"] for point in trend["points"] if point["year_offset"] > 0)
+    assert trend["points"][0]["year_offset"] == -5
+    assert trend["points"][0]["mileage"] == 0
     assert trend["points"][-1]["year_offset"] == 5
     assert trend["points"][-1]["mileage"] == 42000 + 60000
-    projected_values = [point["trade_value"] for point in trend["points"]]
-    assert projected_values == sorted(projected_values, reverse=True)
+    trend_values = [point["trade_value"] for point in trend["points"]]
+    assert trend_values == sorted(trend_values, reverse=True)
 
     appointment_response = client.post(
         f"/api/valuations/{valuation['public_id']}/appointments",

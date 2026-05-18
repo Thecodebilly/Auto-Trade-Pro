@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from autotrade_pro.market_data import MarketDataBundle, MarketSignal
+from autotrade_pro.trends import build_trade_value_trend
 from autotrade_pro.valuation import calculate_valuation, score_condition
 
 
@@ -444,3 +445,37 @@ def test_trade_in_case_matrix_values_each_trade(case: TradeInCase):
     assert result.adjustments["mileage"]["reported_mileage"] == case.mileage
     assert result.source_breakdown["signals"][0]["raw"]["case_id"] == case.case_id
     assert result.source_breakdown["signals"][0]["raw"]["source"] == EPA_SOURCE
+
+
+def test_trend_curve_depreciates_newer_and_luxury_vehicles_faster():
+    current_year = datetime.now(timezone.utc).year
+    new_luxury = build_trade_value_trend(
+        {
+            "trade_offer": 30000,
+            "mileage": 12000,
+            "year": current_year - 1,
+            "make": "BMW",
+            "model": "3 Series",
+            "body_style": "Luxury Sedan",
+        }
+    )
+    older_reliable_suv = build_trade_value_trend(
+        {
+            "trade_offer": 30000,
+            "mileage": 96000,
+            "year": current_year - 8,
+            "make": "HONDA",
+            "model": "CR-V",
+            "body_style": "SUV",
+        }
+    )
+
+    new_now = next(point for point in new_luxury["points"] if point["year_offset"] == 0)
+    new_year_one = next(point for point in new_luxury["points"] if point["year_offset"] == 1)
+    old_now = next(point for point in older_reliable_suv["points"] if point["year_offset"] == 0)
+    old_year_one = next(point for point in older_reliable_suv["points"] if point["year_offset"] == 1)
+
+    assert new_year_one["annual_depreciation_rate"] > old_year_one["annual_depreciation_rate"]
+    assert new_now["trade_value"] - new_year_one["trade_value"] > old_now["trade_value"] - old_year_one["trade_value"]
+    assert new_luxury["points"][-1]["trade_value"] < older_reliable_suv["points"][-1]["trade_value"]
+    assert older_reliable_suv["points"][0]["year_offset"] == -5
