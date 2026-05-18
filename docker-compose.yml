@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   autotrade-pro:
     build: .
@@ -9,7 +7,31 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      - AUTOTRADE_DATA_DIR=/app/data
-      - AUTOTRADE_ADMIN_PASSWORD=${AUTOTRADE_ADMIN_PASSWORD:-AutoTrade123!}
-      - AUTOTRADE_MARKET_REGION=${AUTOTRADE_MARKET_REGION:-south_florida}
+      AUTOTRADE_DATA_DIR: /app/data
+      AUTOTRADE_ADMIN_PASSWORD: ${AUTOTRADE_ADMIN_PASSWORD:-AutoTrade123!}
+      AUTOTRADE_MARKET_REGION: ${AUTOTRADE_MARKET_REGION:-south_florida}
+      AUTOTRADE_REQUIRE_DATABASE_URL: "1"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://autotrade:autotrade@postgres:5432/autotrade}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: autotrade-pro-postgres
+    environment:
+      POSTGRES_DB: autotrade
+      POSTGRES_USER: autotrade
+      POSTGRES_PASSWORD: autotrade
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autotrade -d autotrade"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

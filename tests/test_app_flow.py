@@ -7,7 +7,19 @@ import pytest
 
 from autotrade_pro import create_app
 from autotrade_pro.config import AppConfig
-from autotrade_pro.database import database_backend, fetch_dealer_by_slug, update_dealer
+from autotrade_pro.database import (
+    connect,
+    database_backend,
+    fetch_dealer_by_slug,
+    update_dealer,
+)
+
+
+@pytest.fixture(autouse=True)
+def _allow_sqlite_for_tests(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTOTRADE_DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTOTRADE_REQUIRE_DATABASE_URL", raising=False)
 
 
 def _app(tmp_path):
@@ -117,6 +129,17 @@ def test_database_backend_uses_postgres_url_when_configured(monkeypatch):
     assert database_backend() == "postgresql"
     monkeypatch.delenv("DATABASE_URL")
     assert database_backend() == "sqlite"
+
+
+def test_required_database_url_blocks_sqlite_fallback(tmp_path, monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delenv("AUTOTRADE_DATABASE_URL", raising=False)
+    monkeypatch.setenv("AUTOTRADE_REQUIRE_DATABASE_URL", "1")
+
+    assert database_backend() == "postgresql-required"
+    with pytest.raises(RuntimeError, match="Postgres database URL is required"):
+        with connect(tmp_path / "autotrade.db"):
+            pass
 
 
 def test_admin_requires_login_and_renders_dashboard(tmp_path):

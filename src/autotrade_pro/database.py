@@ -38,6 +38,12 @@ def connect(db_path: Path) -> Iterator[Any]:
         raw_conn = psycopg.connect(database_url, row_factory=dict_row)
         conn = _PostgresConnection(raw_conn)
     else:
+        if _database_url_required():
+            raise RuntimeError(
+                "A Postgres database URL is required. Set DATABASE_URL from a "
+                "Railway Postgres service or set AUTOTRADE_DATABASE_URL. To use "
+                "local SQLite intentionally, set AUTOTRADE_REQUIRE_DATABASE_URL=0."
+            )
         db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
@@ -56,7 +62,11 @@ def _row_to_dict(row: Any | None) -> dict[str, Any] | None:
 
 
 def database_backend() -> str:
-    return "postgresql" if _postgres_database_url() else "sqlite"
+    if _postgres_database_url():
+        return "postgresql"
+    if _database_url_required():
+        return "postgresql-required"
+    return "sqlite"
 
 
 class _PostgresConnection:
@@ -93,6 +103,17 @@ def _postgres_database_url() -> str:
     if database_url.startswith(("postgres://", "postgresql://")):
         return database_url
     return ""
+
+
+def _database_url_required() -> bool:
+    return _env_bool("AUTOTRADE_REQUIRE_DATABASE_URL", False)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _postgres_sql(sql: str) -> str:
