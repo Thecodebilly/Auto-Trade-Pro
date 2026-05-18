@@ -84,6 +84,7 @@ Common environment variables:
 - `AUTOTRADE_DATABASE_URL`: explicit Postgres override; takes precedence over `DATABASE_URL`
 - `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`: accepted when a platform exposes Postgres as component variables instead of a URL
 - `AUTOTRADE_REQUIRE_DATABASE_URL`: set to `1` to forbid SQLite fallback
+- `AUTOTRADE_DB_CONNECT_RETRIES` and `AUTOTRADE_DB_CONNECT_RETRY_SECONDS`: Postgres startup retry tuning
 - `AUTOTRADE_ADMIN_PASSWORD`: admin dashboard password
 - `AUTOTRADE_DEFAULT_DEALER`: default dealer slug, default `south-florida-demo`
 - `AUTOTRADE_MARKET_REGION`: valuation region, default `south_florida`

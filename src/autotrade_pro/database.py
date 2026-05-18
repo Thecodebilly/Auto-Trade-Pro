@@ -134,8 +134,8 @@ def _postgres_url_from_pg_vars() -> str:
 
 
 def _connect_postgres(database_url: str) -> Any:
-    attempts = int(os.getenv("AUTOTRADE_DB_CONNECT_RETRIES", "8"))
-    delay = float(os.getenv("AUTOTRADE_DB_CONNECT_RETRY_SECONDS", "1.5"))
+    attempts = int(os.getenv("AUTOTRADE_DB_CONNECT_RETRIES", "30"))
+    delay = float(os.getenv("AUTOTRADE_DB_CONNECT_RETRY_SECONDS", "2"))
     last_error: Exception | None = None
     for attempt in range(max(attempts, 1)):
         try:
