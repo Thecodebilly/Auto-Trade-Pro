@@ -64,15 +64,36 @@ class MarketDataAggregator:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
 
-    def fetch_bundle(self, db_path: Path, vehicle: dict[str, Any], mileage: int) -> MarketDataBundle:
+    def fetch_bundle(
+        self,
+        db_path: Path,
+        vehicle: dict[str, Any],
+        mileage: int,
+        dealer: dict[str, Any] | None = None,
+    ) -> MarketDataBundle:
         region = self.config.market_region
-        signals = self._fetch_external_signals(vehicle, mileage)
-        signals.extend(self._fetch_local_signals(db_path, vehicle, region))
+        source_settings = _market_source_settings(dealer)
+        signals = self._fetch_external_signals(vehicle, mileage, source_settings)
+        signals.extend(
+            self._fetch_local_signals(db_path, vehicle, region, source_settings)
+        )
         notes: list[str] = []
+        disabled_sources = _disabled_source_labels(source_settings)
+        if disabled_sources:
+            notes.append(
+                "Admin source toggles disabled: " + ", ".join(disabled_sources) + "."
+            )
 
         if not signals:
-            signals.append(self._estimate_signal(vehicle, mileage))
-            notes.append("No licensed or imported market match found; deterministic demo fallback used.")
+            fallback = self._estimate_signal(vehicle, mileage)
+            if not source_settings["demo_fallback"]:
+                fallback.confidence = 0.35
+                notes.append(
+                    "No enabled market source returned a match; safety fallback used despite fallback toggle being off."
+                )
+            else:
+                notes.append("No licensed or imported market match found; deterministic demo fallback used.")
+            signals.append(fallback)
 
         auction_signals = [
             signal for signal in signals if "auction" in signal.source or "manheim" in signal.source
@@ -103,7 +124,11 @@ class MarketDataAggregator:
         )
 
     def _fetch_local_signals(
-        self, db_path: Path, vehicle: dict[str, Any], region: str
+        self,
+        db_path: Path,
+        vehicle: dict[str, Any],
+        region: str,
+        source_settings: dict[str, bool],
     ) -> list[MarketSignal]:
         year = _int_or_none(vehicle.get("year"))
         rows = fetch_market_snapshots(
@@ -124,9 +149,15 @@ class MarketDataAggregator:
                 raw=_safe_json(row.get("raw_json")),
             )
             for row in rows
+            if _is_local_source_enabled(row["source"], source_settings)
         ]
 
-    def _fetch_external_signals(self, vehicle: dict[str, Any], mileage: int) -> list[MarketSignal]:
+    def _fetch_external_signals(
+        self,
+        vehicle: dict[str, Any],
+        mileage: int,
+        source_settings: dict[str, bool],
+    ) -> list[MarketSignal]:
         signals: list[MarketSignal] = []
         for provider in [
             (
@@ -134,22 +165,32 @@ class MarketDataAggregator:
                 self.config.manheim_api_base,
                 self.config.manheim_api_key,
                 "auction",
+                source_settings["manheim"],
             ),
             (
                 "jd_power",
                 self.config.jd_power_api_base,
                 self.config.jd_power_api_key,
                 "retail",
+                source_settings["jd_power"],
             ),
             (
                 "black_book",
                 self.config.black_book_api_base,
                 self.config.black_book_api_key,
                 "retail",
+                source_settings["black_book"],
+            ),
+            (
+                "kelley_blue_book",
+                self.config.kbb_api_base,
+                self.config.kbb_api_key,
+                "kbb",
+                source_settings["kbb"],
             ),
         ]:
-            source, base_url, api_key, category = provider
-            if not base_url or not api_key:
+            source, base_url, api_key, category, enabled = provider
+            if not enabled or not base_url or not api_key:
                 continue
             signal = self._fetch_generic_provider(source, base_url, api_key, category, vehicle, mileage)
             if signal:
@@ -185,15 +226,14 @@ class MarketDataAggregator:
         except Exception:
             return None
 
-        retail = _int_or_none(payload.get("retail_value") or payload.get("retail")) or 0
-        wholesale = _int_or_none(payload.get("wholesale_value") or payload.get("trade")) or 0
+        retail, wholesale = _extract_market_values(payload, category)
         if not retail and wholesale:
             retail = int(wholesale / 0.82)
         if not wholesale and retail:
             wholesale = int(retail * 0.82)
         if not retail or not wholesale:
             return None
-        confidence = float(payload.get("confidence") or (0.88 if category == "auction" else 0.78))
+        confidence = float(payload.get("confidence") or _default_confidence(category))
         return MarketSignal(
             source=source,
             retail_value=retail,
@@ -269,7 +309,123 @@ def _weighted_average(values: list[tuple[int, float]]) -> int:
     return int(round(numerator / denominator / 50) * 50)
 
 
+def _market_source_settings(dealer: dict[str, Any] | None) -> dict[str, bool]:
+    dealer = dealer or {}
+    return {
+        "manheim": _enabled(dealer, "market_source_manheim_enabled"),
+        "jd_power": _enabled(dealer, "market_source_jd_power_enabled"),
+        "black_book": _enabled(dealer, "market_source_black_book_enabled"),
+        "kbb": _enabled(dealer, "market_source_kbb_enabled"),
+        "dealer_import": _enabled(dealer, "market_source_dealer_import_enabled"),
+        "demo_fallback": _enabled(dealer, "market_source_demo_fallback_enabled"),
+    }
+
+
+def _enabled(dealer: dict[str, Any], key: str) -> bool:
+    return bool(int(dealer.get(key, 1)))
+
+
+def _is_local_source_enabled(source: str, source_settings: dict[str, bool]) -> bool:
+    return source_settings.get(_source_key(source), True)
+
+
+def _source_key(source: str) -> str:
+    source = source.lower()
+    if "kbb" in source or "kelley" in source:
+        return "kbb"
+    if "manheim" in source or "mmr" in source:
+        return "manheim"
+    if "jd_power" in source or "j.d" in source or "chrome" in source:
+        return "jd_power"
+    if "black_book" in source or "black book" in source:
+        return "black_book"
+    return "dealer_import"
+
+
+def _disabled_source_labels(source_settings: dict[str, bool]) -> list[str]:
+    labels = {
+        "manheim": "Manheim/MMR",
+        "jd_power": "J.D. Power",
+        "black_book": "Black Book",
+        "kbb": "Kelley Blue Book",
+        "dealer_import": "dealer/imported snapshots",
+        "demo_fallback": "deterministic fallback",
+    }
+    return [label for key, label in labels.items() if not source_settings[key]]
+
+
+def _extract_market_values(payload: dict[str, Any], category: str) -> tuple[int, int]:
+    retail_aliases = [
+        "retail_value",
+        "retail",
+        "dealer_retail_value",
+        "typical_listing_value",
+        "typical_listing_price",
+        "fair_market_value",
+        "fair_market_range_midpoint",
+        "private_party_value",
+        "private_party",
+    ]
+    wholesale_aliases = [
+        "wholesale_value",
+        "wholesale",
+        "auction_value",
+        "trade",
+        "trade_value",
+        "trade_in_value",
+        "trade_in",
+        "kbb_trade_in_value",
+        "lending_value",
+    ]
+    if category == "kbb":
+        retail_aliases = [
+            "typical_listing_value",
+            "typical_listing_price",
+            "fair_market_value",
+            "fair_market_range_midpoint",
+            "retail_value",
+            "retail",
+            "private_party_value",
+        ]
+        wholesale_aliases = [
+            "trade_in_value",
+            "trade_value",
+            "kbb_trade_in_value",
+            "auction_value",
+            "lending_value",
+            "wholesale_value",
+            "wholesale",
+        ]
+    return _first_int(payload, retail_aliases), _first_int(payload, wholesale_aliases)
+
+
+def _first_int(payload: dict[str, Any], keys: list[str]) -> int:
+    for key in keys:
+        value = _int_or_none(payload.get(key))
+        if value:
+            return value
+    for container_key in ["values", "valuation", "data", "result"]:
+        nested = payload.get(container_key)
+        if not isinstance(nested, dict):
+            continue
+        for key in keys:
+            value = _int_or_none(nested.get(key))
+            if value:
+                return value
+    return 0
+
+
+def _default_confidence(category: str) -> float:
+    if category == "auction":
+        return 0.88
+    if category == "kbb":
+        return 0.84
+    return 0.78
+
+
 def _int_or_none(value: object) -> int | None:
+    if isinstance(value, dict):
+        value = value.get("amount") or value.get("value") or value.get("midpoint")
     try:
         return int(float(str(value).strip()))
     except (TypeError, ValueError):

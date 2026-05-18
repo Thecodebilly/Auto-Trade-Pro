@@ -175,7 +175,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 pass
 
         aggregator = MarketDataAggregator(config)
-        market = aggregator.fetch_bundle(config.database_path, vehicle, mileage)
+        market = aggregator.fetch_bundle(config.database_path, vehicle, mileage, dealer)
         result = calculate_valuation(
             dealer=dealer,
             vehicle=vehicle,
@@ -376,6 +376,24 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             "openai_price_adjustment_limit_percent": _float_or_default(
                 request.form.get("openai_price_adjustment_limit_percent"), 0.06
             ),
+            "market_source_manheim_enabled": 1
+            if request.form.get("market_source_manheim_enabled")
+            else 0,
+            "market_source_jd_power_enabled": 1
+            if request.form.get("market_source_jd_power_enabled")
+            else 0,
+            "market_source_black_book_enabled": 1
+            if request.form.get("market_source_black_book_enabled")
+            else 0,
+            "market_source_kbb_enabled": 1
+            if request.form.get("market_source_kbb_enabled")
+            else 0,
+            "market_source_dealer_import_enabled": 1
+            if request.form.get("market_source_dealer_import_enabled")
+            else 0,
+            "market_source_demo_fallback_enabled": 1
+            if request.form.get("market_source_demo_fallback_enabled")
+            else 0,
         }
         if request.form.get("clear_openai_api_key"):
             fields["openai_api_key"] = ""

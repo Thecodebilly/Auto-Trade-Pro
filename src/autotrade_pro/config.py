@@ -70,6 +70,12 @@ class AppConfig:
     black_book_api_key: str = field(
         default_factory=lambda: os.getenv("AUTOTRADE_BLACK_BOOK_API_KEY", "")
     )
+    kbb_api_base: str = field(
+        default_factory=lambda: os.getenv("AUTOTRADE_KBB_API_BASE", "").rstrip("/")
+    )
+    kbb_api_key: str = field(
+        default_factory=lambda: os.getenv("AUTOTRADE_KBB_API_KEY", "")
+    )
     crm_webhook_url: str = field(
         default_factory=lambda: os.getenv("AUTOTRADE_CRM_WEBHOOK_URL", "")
     )

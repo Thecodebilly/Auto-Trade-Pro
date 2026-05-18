@@ -277,6 +277,16 @@
               <label class="full">CRM webhook URL<input name="crm_webhook_url" value="{{ dealer.crm_webhook_url }}"></label>
               <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="bonus_credit_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.bonus_credit_enabled %}checked{% endif %}> Booking bonus enabled</label>
               <div class="full" style="border-top:1px solid var(--line); padding-top:14px; margin-top:6px;">
+                <h3>Valuation source data</h3>
+                <p class="muted" style="margin:0 0 12px;">Choose which market sources can influence trade-in estimates. Kelley Blue Book requires a licensed feed or imported KBB snapshots.</p>
+              </div>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="market_source_kbb_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.market_source_kbb_enabled %}checked{% endif %}> Use Kelley Blue Book values</label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="market_source_manheim_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.market_source_manheim_enabled %}checked{% endif %}> Use Manheim/MMR auction data</label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="market_source_jd_power_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.market_source_jd_power_enabled %}checked{% endif %}> Use J.D. Power values</label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="market_source_black_book_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.market_source_black_book_enabled %}checked{% endif %}> Use Black Book values</label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="market_source_dealer_import_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.market_source_dealer_import_enabled %}checked{% endif %}> Use dealer CSV/imported snapshots</label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="market_source_demo_fallback_enabled" type="checkbox" style="width:auto; min-height:auto;" {% if dealer.market_source_demo_fallback_enabled %}checked{% endif %}> Use deterministic fallback when no source matches</label>
+              <div class="full" style="border-top:1px solid var(--line); padding-top:14px; margin-top:6px;">
                 <h3>AI valuation assist</h3>
                 <p class="muted" style="margin:0 0 12px;">Optional OpenAI review can sanity-check pricing and digest uploaded vehicle photos. The deterministic valuation cap still applies.</p>
               </div>

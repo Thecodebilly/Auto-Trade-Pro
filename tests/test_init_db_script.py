@@ -26,5 +26,5 @@ def test_init_db_script_creates_and_seeds_database(tmp_path):
     assert payload["database_path"].endswith("autotrade-test.db")
     assert payload["dealers"] == 1
     assert payload["incentives"] == 4
-    assert payload["market_snapshots"] == 10
+    assert payload["market_snapshots"] == 16
     assert payload["valuations"] == 0

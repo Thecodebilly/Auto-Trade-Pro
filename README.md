@@ -8,7 +8,7 @@ AutoTrade Pro is a white-label trade-in valuation SaaS prototype for automotive 
 - Admin dashboard at `/admin` for leads, dealer branding, incentives, data-source status, CRM events, and CSV export.
 - SQLite schema for dealers, incentives, valuations, photos, customers, appointments, market snapshots, CRM events, and audit events.
 - NHTSA vPIC VIN decoder integration with a safe fallback for manual entry.
-- Market data abstraction for licensed Manheim/J.D. Power/Black Book-style feeds plus dealer CSV imports and seeded demo South Florida snapshots.
+- Market data abstraction for licensed Manheim/J.D. Power/Black Book/Kelley Blue Book-style feeds plus dealer CSV imports and seeded demo South Florida snapshots.
 - Valuation engine with condition-first weighting and a hard maximum offer cap at 95% of retail market value by default.
 - Optional one-shot or background worker for market snapshot refresh.
 
@@ -20,6 +20,7 @@ The app is wired for real integrations, but not all valuation sources are public
 - Manheim MMR is a licensed wholesale valuation source; API clients are directed to Cox Automotive data syndication: https://site.manheim.com/en/help/mmr.html
 - J.D. Power/ChromeData offers vehicle description and valuation products through commercial data services: https://www.jdpower.com/business/features-price-specs
 - Black Book offers retail listings and custom trade-value APIs through commercial licensing: https://www.blackbook.com/api/
+- Kelley Blue Book Values are available through B2B products such as InfoDriver Web Service, Quick Values, and Batch VIN: https://b2b.kbb.com/industry-solutions/
 
 Without licensed keys, AutoTrade Pro runs with seeded demo market snapshots and a deterministic fallback estimator so dealers can demo the full workflow.
 
@@ -85,12 +86,15 @@ Common environment variables:
 - `AUTOTRADE_MANHEIM_API_BASE` and `AUTOTRADE_MANHEIM_API_KEY`: optional licensed wholesale feed
 - `AUTOTRADE_JD_POWER_API_BASE` and `AUTOTRADE_JD_POWER_API_KEY`: optional licensed comparable feed
 - `AUTOTRADE_BLACK_BOOK_API_BASE` and `AUTOTRADE_BLACK_BOOK_API_KEY`: optional licensed comparable feed
+- `AUTOTRADE_KBB_API_BASE` and `AUTOTRADE_KBB_API_KEY`: optional licensed Kelley Blue Book valuation feed
 - `AUTOTRADE_CRM_WEBHOOK_URL`: fallback CRM webhook URL
 - `AUTOTRADE_SMTP_*`: optional confirmation email delivery
 - `AUTOTRADE_SMS_WEBHOOK_URL`: optional SMS webhook
 - `AUTOTRADE_ENABLE_WORKER=1`: starts periodic CSV market refresh in-process
 
 OpenAI settings are managed in the admin UI per dealer so different stores can use different keys, models, and adjustment limits.
+
+Valuation source toggles are also managed per dealer in the admin UI. A store can enable or disable Kelley Blue Book, Manheim/MMR, J.D. Power, Black Book, dealer/imported snapshots, and the deterministic fallback used when no licensed source matches.
 
 ## Database Bootstrap
 

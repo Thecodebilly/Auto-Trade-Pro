@@ -65,6 +65,12 @@ def init_db(db_path: Path) -> None:
                 openai_valuation_enabled INTEGER NOT NULL DEFAULT 0,
                 openai_image_analysis_enabled INTEGER NOT NULL DEFAULT 1,
                 openai_price_adjustment_limit_percent REAL NOT NULL DEFAULT 0.06,
+                market_source_manheim_enabled INTEGER NOT NULL DEFAULT 1,
+                market_source_jd_power_enabled INTEGER NOT NULL DEFAULT 1,
+                market_source_black_book_enabled INTEGER NOT NULL DEFAULT 1,
+                market_source_kbb_enabled INTEGER NOT NULL DEFAULT 1,
+                market_source_dealer_import_enabled INTEGER NOT NULL DEFAULT 1,
+                market_source_demo_fallback_enabled INTEGER NOT NULL DEFAULT 1,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             );
@@ -212,6 +218,12 @@ def init_db(db_path: Path) -> None:
                 "openai_valuation_enabled": "INTEGER NOT NULL DEFAULT 0",
                 "openai_image_analysis_enabled": "INTEGER NOT NULL DEFAULT 1",
                 "openai_price_adjustment_limit_percent": "REAL NOT NULL DEFAULT 0.06",
+                "market_source_manheim_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_jd_power_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_black_book_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_kbb_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_dealer_import_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_demo_fallback_enabled": "INTEGER NOT NULL DEFAULT 1",
             },
         )
         conn.commit()
@@ -322,11 +334,17 @@ def seed_demo_data(db_path: Path, default_slug: str = "south-florida-demo") -> N
         if market_count == 0:
             rows = [
                 (2023, "TOYOTA", "CAMRY", "SE", "manheim_mmr_demo", 27700, 22200, 214, 42, 0.86),
+                (2023, "TOYOTA", "CAMRY", "SE", "kelley_blue_book_demo", 28100, 22600, 0, 0, 0.84),
                 (2022, "TOYOTA", "RAV4", "XLE", "manheim_mmr_demo", 30400, 24500, 189, 38, 0.84),
+                (2022, "TOYOTA", "RAV4", "XLE", "kelley_blue_book_demo", 31100, 24900, 0, 0, 0.83),
                 (2021, "HONDA", "ACCORD", "EX-L", "regional_auction_demo", 25200, 20100, 96, 51, 0.78),
+                (2021, "HONDA", "ACCORD", "EX-L", "kelley_blue_book_demo", 25900, 20700, 0, 0, 0.82),
                 (2022, "HONDA", "CR-V", "EX", "manheim_mmr_demo", 29600, 23800, 166, 44, 0.82),
+                (2022, "HONDA", "CR-V", "EX", "kelley_blue_book_demo", 30200, 24200, 0, 0, 0.82),
                 (2021, "FORD", "F-150", "XLT", "regional_auction_demo", 37200, 30900, 144, 48, 0.81),
+                (2021, "FORD", "F-150", "XLT", "kelley_blue_book_demo", 38400, 31800, 0, 0, 0.83),
                 (2023, "CHEVROLET", "SILVERADO", "LT", "manheim_mmr_demo", 41400, 34600, 112, 53, 0.79),
+                (2023, "CHEVROLET", "SILVERADO", "LT", "kelley_blue_book_demo", 42100, 35100, 0, 0, 0.82),
                 (2020, "BMW", "3 SERIES", "330I", "retail_comparable_demo", 28600, 22200, 88, 59, 0.74),
                 (2021, "MERCEDES-BENZ", "C-CLASS", "C300", "retail_comparable_demo", 31800, 24900, 72, 61, 0.73),
                 (2022, "NISSAN", "ALTIMA", "SV", "regional_auction_demo", 22300, 17600, 139, 57, 0.77),
@@ -405,6 +423,12 @@ def update_dealer(db_path: Path, dealer_id: int, fields: dict[str, Any]) -> None
         "openai_valuation_enabled",
         "openai_image_analysis_enabled",
         "openai_price_adjustment_limit_percent",
+        "market_source_manheim_enabled",
+        "market_source_jd_power_enabled",
+        "market_source_black_book_enabled",
+        "market_source_kbb_enabled",
+        "market_source_dealer_import_enabled",
+        "market_source_demo_fallback_enabled",
     }
     assignments = []
     values: list[Any] = []

@@ -116,6 +116,8 @@ def test_admin_requires_login_and_renders_dashboard(tmp_path):
     assert b"Lead Dashboard" in login.data
     assert b"White Label Settings" in login.data
     assert b"AI valuation assist" in login.data
+    assert b"Valuation source data" in login.data
+    assert b"Kelley Blue Book" in login.data
     assert b"/admin/dashboard" in login.data
 
 
@@ -260,6 +262,131 @@ def test_vehicle_option_endpoints_have_fallbacks_without_live_nhtsa(tmp_path):
     assert "Accord" in models["models"]
     assert trims["ok"] is True
     assert "Lariat" in trims["trims"]
+
+
+def test_kbb_source_can_be_used_and_toggled_for_estimates(tmp_path, monkeypatch):
+    app = _app_with_config(
+        tmp_path,
+        kbb_api_base="https://kbb.example.test",
+        kbb_api_key="kbb-key",
+    )
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+    update_dealer(
+        tmp_path / "autotrade.db",
+        dealer["id"],
+        {
+            "market_source_manheim_enabled": 0,
+            "market_source_jd_power_enabled": 0,
+            "market_source_black_book_enabled": 0,
+            "market_source_kbb_enabled": 1,
+            "market_source_dealer_import_enabled": 0,
+            "market_source_demo_fallback_enabled": 1,
+        },
+    )
+
+    class FakeKbbResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "trade_in_value": 17800,
+                "typical_listing_value": 22600,
+                "confidence": 0.91,
+                "valuation_id": "fake-kbb-value",
+            }
+
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append({"url": url, **kwargs})
+        return FakeKbbResponse()
+
+    monkeypatch.setattr("autotrade_pro.market_data.requests.get", fake_get)
+    client = app.test_client()
+
+    response = client.post(
+        "/api/dealers/south-florida-demo/valuations",
+        data={
+            "vin": "",
+            "mileage": "64250",
+            "vehicle_json": json.dumps(
+                {
+                    "vin": "",
+                    "year": 2020,
+                    "make": "KBBTEST",
+                    "model": "SOURCECHECK",
+                    "trim": "Touring",
+                    "body_style": "Sedan",
+                }
+            ),
+            "condition_json": json.dumps(
+                {
+                    "dents": "none",
+                    "interior": "clean",
+                    "warning_lights": "none",
+                    "tires": "7_18",
+                    "brakes": "7_18",
+                    "oil_change": "3_6",
+                }
+            ),
+            "photo_labels_json": json.dumps(["front", "rear", "interior", "dash"]),
+        },
+    )
+
+    assert response.status_code == 200
+    valuation = response.get_json()["valuation"]
+    signal = valuation["source_breakdown"]["signals"][0]
+    assert calls[0]["url"] == "https://kbb.example.test/valuation"
+    assert calls[0]["headers"]["Authorization"] == "Bearer kbb-key"
+    assert calls[0]["params"]["make"] == "KBBTEST"
+    assert signal["source"] == "kelley_blue_book"
+    assert signal["retail_value"] == 22600
+    assert signal["wholesale_value"] == 17800
+    assert valuation["retail_market_value"] == 22600
+    assert valuation["auction_wholesale_value"] == 17800
+
+    update_dealer(
+        tmp_path / "autotrade.db",
+        dealer["id"],
+        {"market_source_kbb_enabled": 0, "market_source_dealer_import_enabled": 0},
+    )
+    calls.clear()
+
+    disabled_response = client.post(
+        "/api/dealers/south-florida-demo/valuations",
+        data={
+            "vin": "",
+            "mileage": "64250",
+            "vehicle_json": json.dumps(
+                {
+                    "vin": "",
+                    "year": 2020,
+                    "make": "KBBTEST",
+                    "model": "SOURCECHECK",
+                    "trim": "Touring",
+                    "body_style": "Sedan",
+                }
+            ),
+            "condition_json": json.dumps(
+                {
+                    "dents": "none",
+                    "interior": "clean",
+                    "warning_lights": "none",
+                    "tires": "7_18",
+                    "brakes": "7_18",
+                    "oil_change": "3_6",
+                }
+            ),
+            "photo_labels_json": json.dumps(["front", "rear", "interior", "dash"]),
+        },
+    )
+
+    assert disabled_response.status_code == 200
+    disabled = disabled_response.get_json()["valuation"]
+    assert calls == []
+    assert disabled["source_breakdown"]["signals"][0]["source"] == "deterministic_demo_estimate"
+    assert "Kelley Blue Book" in " ".join(disabled["source_breakdown"]["notes"])
 
 
 def test_ai_review_can_adjust_price_and_digest_photos(tmp_path, monkeypatch):
