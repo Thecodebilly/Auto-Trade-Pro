@@ -1190,13 +1190,21 @@ def list_data_source_status(db_path: Path) -> list[dict[str, Any]]:
             """
             SELECT source, region, COUNT(*) AS rows_count,
                    MAX(captured_at) AS latest_capture,
-                   ROUND(AVG(confidence), 2) AS average_confidence
+                   AVG(confidence) AS average_confidence
             FROM market_snapshots
             GROUP BY source, region
             ORDER BY latest_capture DESC
             """
         ).fetchall()
-        return [dict(row) for row in rows]
+        statuses = []
+        for row in rows:
+            status = dict(row)
+            status["rows_count"] = int(status.get("rows_count") or 0)
+            status["average_confidence"] = round(
+                float(status.get("average_confidence") or 0), 2
+            )
+            statuses.append(status)
+        return statuses
 
 
 def _average(values: list[int] | list[float]) -> float:

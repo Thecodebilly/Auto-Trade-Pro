@@ -11,6 +11,7 @@ from autotrade_pro.database import (
     connect,
     database_backend,
     fetch_dealer_by_slug,
+    list_data_source_status,
     update_dealer,
 )
 
@@ -192,6 +193,20 @@ def test_admin_requires_login_and_renders_dashboard(tmp_path):
     assert b"Valuation source data" in login.data
     assert b"Kelley Blue Book" in login.data
     assert b"/admin/dashboard" in login.data
+
+
+def test_data_source_status_rounds_confidence_in_python(tmp_path):
+    _app(tmp_path)
+
+    statuses = list_data_source_status(tmp_path / "autotrade.db")
+
+    assert statuses
+    assert all(isinstance(status["rows_count"], int) for status in statuses)
+    assert all(isinstance(status["average_confidence"], float) for status in statuses)
+    assert all(
+        status["average_confidence"] == round(status["average_confidence"], 2)
+        for status in statuses
+    )
 
 
 def test_admin_can_save_pricing_reasoning_preprompt(tmp_path):
