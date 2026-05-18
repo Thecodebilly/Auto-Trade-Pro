@@ -47,6 +47,7 @@ from .database import (
 from .market_data import MarketDataAggregator
 from .notifications import send_confirmation
 from .valuation import build_valuation_record, calculate_valuation
+from .vehicle_options import BODY_STYLES, VehicleOptionsClient
 from .vin import NhtsaVinDecoder, VinDecodeError, fallback_decode, normalize_vin
 from .workers import refresh_market_data_once
 
@@ -84,6 +85,35 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         dealer = _dealer_or_404(config, dealer_slug)
         return jsonify({"dealer": _dealer_public_payload(dealer), "incentives": list_incentives(config.database_path, dealer["id"])})
 
+    @bp.get("/api/vehicle-options")
+    def vehicle_options() -> Response:
+        client = VehicleOptionsClient(config.nhtsa_api_base, config.nhtsa_timeout_seconds)
+        makes, source = client.makes()
+        return jsonify(
+            {
+                "ok": True,
+                "source": source,
+                "years": client.years(),
+                "makes": makes,
+                "body_styles": BODY_STYLES,
+            }
+        )
+
+    @bp.get("/api/vehicle-options/models")
+    def vehicle_models() -> Response:
+        make = request.args.get("make", "")
+        year = _int_or_none(request.args.get("year"))
+        client = VehicleOptionsClient(config.nhtsa_api_base, config.nhtsa_timeout_seconds)
+        models, source = client.models(make, year)
+        return jsonify({"ok": True, "source": source, "models": models})
+
+    @bp.get("/api/vehicle-options/trims")
+    def vehicle_trims() -> Response:
+        make = request.args.get("make", "")
+        model = request.args.get("model", "")
+        client = VehicleOptionsClient(config.nhtsa_api_base, config.nhtsa_timeout_seconds)
+        return jsonify({"ok": True, "trims": client.trims(make, model)})
+
     @bp.post("/api/dealers/<dealer_slug>/decode-vin")
     def decode_vin(dealer_slug: str) -> Response:
         _dealer_or_404(config, dealer_slug)
@@ -105,22 +135,32 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @bp.post("/api/dealers/<dealer_slug>/valuations")
     def submit_valuation(dealer_slug: str) -> Response:
         dealer = _dealer_or_404(config, dealer_slug)
+        vehicle = _json_field("vehicle_json", {})
         try:
-            vin = normalize_vin(_field("vin"))
             mileage = int(_field("mileage"))
             if mileage < 0:
                 raise ValueError
-        except (VinDecodeError, ValueError):
-            return jsonify({"ok": False, "error": "Enter a valid VIN and mileage."}), 400
+        except ValueError:
+            return jsonify({"ok": False, "error": "Enter a valid mileage."}), 400
 
-        vehicle = _json_field("vehicle_json", {})
-        vehicle.update({key: value for key, value in {"vin": vin}.items() if value})
+        try:
+            vin = _normalize_optional_vin(_field("vin"))
+        except VinDecodeError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+
+        if not vin and not _has_manual_vehicle(vehicle):
+            return jsonify({"ok": False, "error": "Enter a valid VIN or select year, make, and model."}), 400
+
+        if vin:
+            vehicle["vin"] = vin
+        else:
+            vehicle["vin"] = ""
         condition_answers = _json_field("condition_json", {})
         photo_labels = _json_field("photo_labels_json", [])
         files = request.files.getlist("photos")
         sanitized_labels = _labels_for_files(photo_labels, len(files))
 
-        if not vehicle.get("make") or not vehicle.get("model"):
+        if vin and (not vehicle.get("make") or not vehicle.get("model")):
             try:
                 decoded = NhtsaVinDecoder(config.nhtsa_api_base, config.nhtsa_timeout_seconds).decode(vin)
                 vehicle.update({key: value for key, value in decoded.to_dict().items() if value and key != "raw"})
@@ -413,6 +453,24 @@ def _loads(raw: str, default: Any = None) -> Any:
         return json.loads(raw)
     except (TypeError, json.JSONDecodeError):
         return default if default is not None else {}
+
+
+def _normalize_optional_vin(vin: str) -> str:
+    vin = str(vin or "").strip()
+    return normalize_vin(vin) if vin else ""
+
+
+def _has_manual_vehicle(vehicle: Any) -> bool:
+    if not isinstance(vehicle, dict):
+        return False
+    return all(str(vehicle.get(key, "")).strip() for key in ["year", "make", "model"])
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return None
 
 
 def _labels_for_files(labels: Any, file_count: int) -> list[str]:

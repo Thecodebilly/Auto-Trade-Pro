@@ -154,6 +154,7 @@
     .screen-note { color: var(--muted); margin: 0 0 24px; line-height: 1.5; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
     .field { display: flex; flex-direction: column; gap: 7px; }
+    .hidden { display: none !important; }
     label { font-size: 13px; color: #45525f; font-weight: 800; }
     input, select, textarea {
       width: 100%;
@@ -360,19 +361,43 @@
           <div class="stepbar" id="stepbar"></div>
           <div class="panel-body">
             <section class="screen active" data-screen="vin">
-              <h2>Vehicle VIN</h2>
-              <p class="screen-note">Start with the 17-character VIN so the vehicle can be decoded before mileage and condition are scored.</p>
+              <h2>Vehicle Selection</h2>
+              <p class="screen-note">Decode a VIN or select the year, make, model, trim, and body style from dropdowns before the trade is scored.</p>
               <div class="grid">
                 <div class="field">
-                  <label for="vin">VIN</label>
+                  <label for="vin">VIN optional</label>
                   <input id="vin" maxlength="17" autocomplete="off" placeholder="1HGCV1F30NA000000">
                 </div>
                 <div class="field">
                   <label for="zip">ZIP code</label>
                   <input id="zip" inputmode="numeric" maxlength="10" placeholder="{{ dealer.postal_code }}">
                 </div>
+                <div class="field">
+                  <label for="year">Year</label>
+                  <select id="year"></select>
+                </div>
+                <div class="field">
+                  <label for="make">Make</label>
+                  <select id="make"></select>
+                  <input id="makeOther" class="hidden" autocomplete="off" placeholder="Enter make">
+                </div>
+                <div class="field">
+                  <label for="model">Model</label>
+                  <select id="model"></select>
+                  <input id="modelOther" class="hidden" autocomplete="off" placeholder="Enter model">
+                </div>
+                <div class="field">
+                  <label for="trim">Trim</label>
+                  <select id="trim"></select>
+                  <input id="trimOther" class="hidden" autocomplete="off" placeholder="Enter trim">
+                </div>
+                <div class="field">
+                  <label for="bodyStyle">Body style</label>
+                  <select id="bodyStyle"></select>
+                  <input id="bodyStyleOther" class="hidden" autocomplete="off" placeholder="Enter body style">
+                </div>
               </div>
-              <div class="status-line" id="vinStatus">Ready for VIN decode.</div>
+              <div class="status-line" id="vinStatus">Loading vehicle dropdowns.</div>
               <div class="actions">
                 <span></span>
                 <div class="right">
@@ -390,26 +415,6 @@
                 <div class="field">
                   <label for="mileage">Mileage</label>
                   <input id="mileage" inputmode="numeric" placeholder="45250">
-                </div>
-                <div class="field">
-                  <label for="year">Year</label>
-                  <input id="year" inputmode="numeric">
-                </div>
-                <div class="field">
-                  <label for="make">Make</label>
-                  <input id="make">
-                </div>
-                <div class="field">
-                  <label for="model">Model</label>
-                  <input id="model">
-                </div>
-                <div class="field">
-                  <label for="trim">Trim</label>
-                  <input id="trim">
-                </div>
-                <div class="field">
-                  <label for="bodyStyle">Body style</label>
-                  <input id="bodyStyle">
                 </div>
               </div>
               <div class="actions">
@@ -519,11 +524,13 @@
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script>
     const steps = ["vin", "mileage", "condition", "photos", "incentives", "valuation", "appointment", "confirmation"];
-    const stepLabels = ["VIN", "Mileage", "Condition", "Photos", "Perks", "Offer", "Booking", "Done"];
+    const stepLabels = ["Vehicle", "Mileage", "Condition", "Photos", "Perks", "Offer", "Booking", "Done"];
     const revealRank = { vin: 0, mileage: 1, condition: 2, photos: 3, offer: 5 };
+    const CUSTOM_VALUE = "__custom__";
     const state = {
       step: 0,
       vehicle: {},
+      vehicleOptions: { years: [], makes: [], body_styles: [] },
       valuation: null,
       appointment: null
     };
@@ -553,6 +560,7 @@
       document.getElementById("calculateBtn").addEventListener("click", calculateOffer);
       document.getElementById("toAppointmentBtn").addEventListener("click", () => go(6));
       document.getElementById("bookBtn").addEventListener("click", bookAppointment);
+      initVehicleSelectors();
       renderCondition();
       renderPhotoSlots();
       renderTimes();
@@ -589,6 +597,171 @@
       document.getElementById("appointmentDate").min = new Date().toISOString().slice(0, 10);
     }
 
+    async function initVehicleSelectors() {
+      bindVehicleSelectorEvents();
+      populateSelect("year", [], "Select year");
+      populateSelect("make", [], "Loading makes");
+      populateSelect("model", [], "Select make first");
+      populateSelect("trim", [], "Select model first", true);
+      populateSelect("bodyStyle", [], "Loading body styles", true);
+      document.getElementById("model").disabled = true;
+      document.getElementById("trim").disabled = true;
+
+      try {
+        const response = await fetch("/api/vehicle-options");
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Vehicle options failed.");
+        state.vehicleOptions = payload;
+        populateSelect("year", payload.years || [], "Select year");
+        populateSelect("make", payload.makes || [], "Select make", true);
+        populateSelect("bodyStyle", payload.body_styles || [], "Select body style", true);
+        setStatus("vinStatus", "Select a vehicle or decode the VIN.", false);
+      } catch (error) {
+        const currentYear = new Date().getFullYear() + 1;
+        state.vehicleOptions.years = Array.from({ length: currentYear - 1980 }, (_, index) => currentYear - index);
+        state.vehicleOptions.body_styles = ["Sedan", "SUV", "Pickup", "Coupe", "Convertible", "Hatchback", "Minivan", "Van"];
+        populateSelect("year", state.vehicleOptions.years, "Select year");
+        populateSelect("make", [], "Enter make manually", true);
+        setCustomMode("make", true);
+        populateSelect("bodyStyle", state.vehicleOptions.body_styles, "Select body style", true);
+        setStatus("vinStatus", "Vehicle lists are offline. Manual entry is available.", true);
+      }
+    }
+
+    function bindVehicleSelectorEvents() {
+      document.getElementById("year").addEventListener("change", () => {
+        syncVehicleInputs();
+        loadModels();
+      });
+      document.getElementById("make").addEventListener("change", () => {
+        setCustomMode("make", document.getElementById("make").value === CUSTOM_VALUE);
+        syncVehicleInputs();
+        loadModels();
+      });
+      document.getElementById("model").addEventListener("change", () => {
+        setCustomMode("model", document.getElementById("model").value === CUSTOM_VALUE);
+        syncVehicleInputs();
+        loadTrims();
+      });
+      document.getElementById("trim").addEventListener("change", () => {
+        setCustomMode("trim", document.getElementById("trim").value === CUSTOM_VALUE);
+        syncVehicleInputs();
+      });
+      document.getElementById("bodyStyle").addEventListener("change", () => {
+        setCustomMode("bodyStyle", document.getElementById("bodyStyle").value === CUSTOM_VALUE);
+        syncVehicleInputs();
+      });
+      ["makeOther", "modelOther", "trimOther", "bodyStyleOther"].forEach(id => {
+        document.getElementById(id).addEventListener("input", syncVehicleInputs);
+      });
+    }
+
+    function populateSelect(id, values, placeholder, includeCustom = false) {
+      const select = document.getElementById(id);
+      const normalized = [...new Set((values || []).map(value => String(value).trim()).filter(Boolean))];
+      select.innerHTML = [
+        `<option value="">${placeholder}</option>`,
+        ...normalized.map(value => `<option value="${escapeAttr(value)}">${escapeHtml(value)}</option>`),
+        includeCustom ? `<option value="${CUSTOM_VALUE}">Not listed</option>` : ""
+      ].join("");
+      select.disabled = !normalized.length && !includeCustom;
+    }
+
+    async function loadModels(preferredModel = "") {
+      const make = selectedOrCustomValue("make");
+      const year = document.getElementById("year").value;
+      const modelSelect = document.getElementById("model");
+      populateSelect("model", [], make ? "Loading models" : "Select make first", true);
+      populateSelect("trim", [], "Select model first", true);
+      document.getElementById("trim").disabled = true;
+      setCustomMode("model", false);
+      setCustomMode("trim", false);
+      if (!make || document.getElementById("make").value === CUSTOM_VALUE) {
+        modelSelect.disabled = false;
+        if (preferredModel) {
+          modelSelect.value = CUSTOM_VALUE;
+          setCustomMode("model", true);
+          document.getElementById("modelOther").value = preferredModel;
+        }
+        return;
+      }
+      try {
+        const params = new URLSearchParams({ make, year });
+        const response = await fetch(`/api/vehicle-options/models?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Model lookup failed.");
+        populateSelect("model", payload.models || [], "Select model", true);
+        setDropdownValue("model", preferredModel);
+      } catch (error) {
+        populateSelect("model", [], "Enter model manually", true);
+        setCustomMode("model", true);
+        if (preferredModel) document.getElementById("modelOther").value = preferredModel;
+      }
+      syncVehicleInputs();
+      loadTrims();
+    }
+
+    async function loadTrims(preferredTrim = "") {
+      const make = selectedOrCustomValue("make");
+      const model = selectedOrCustomValue("model");
+      if (!model) {
+        populateSelect("trim", [], "Select model first", true);
+        document.getElementById("trim").disabled = true;
+        return;
+      }
+      try {
+        const params = new URLSearchParams({ make, model });
+        const response = await fetch(`/api/vehicle-options/trims?${params.toString()}`);
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "Trim lookup failed.");
+        populateSelect("trim", payload.trims || [], "Select trim", true);
+        setDropdownValue("trim", preferredTrim);
+      } catch (error) {
+        populateSelect("trim", [], "Enter trim manually", true);
+        setCustomMode("trim", true);
+        if (preferredTrim) document.getElementById("trimOther").value = preferredTrim;
+      }
+      syncVehicleInputs();
+    }
+
+    function setDropdownValue(id, value) {
+      const select = document.getElementById(id);
+      const normalized = String(value || "").trim();
+      if (!normalized) return;
+      const option = [...select.options].find(item => item.value.toUpperCase() === normalized.toUpperCase());
+      if (option) {
+        select.value = option.value;
+        setCustomMode(id, false);
+      } else {
+        const custom = document.getElementById(`${id}Other`);
+        if (!custom) return;
+        select.value = CUSTOM_VALUE;
+        setCustomMode(id, true);
+        custom.value = normalized;
+      }
+    }
+
+    function setCustomMode(id, enabled) {
+      const custom = document.getElementById(`${id}Other`);
+      if (!custom) return;
+      custom.classList.toggle("hidden", !enabled);
+      if (!enabled) custom.value = "";
+    }
+
+    function selectedOrCustomValue(id) {
+      const selected = document.getElementById(id).value;
+      if (selected === CUSTOM_VALUE) return document.getElementById(`${id}Other`).value.trim();
+      return selected.trim();
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value);
+    }
+
     async function decodeVin() {
       const vin = document.getElementById("vin").value.trim().toUpperCase();
       const status = document.getElementById("vinStatus");
@@ -603,8 +776,12 @@
         const payload = await response.json();
         if (!response.ok || !payload.ok) throw new Error(payload.error || "VIN decode failed.");
         state.vehicle = payload.vehicle;
-        ["year", "make", "model", "trim"].forEach(key => document.getElementById(key).value = state.vehicle[key] || "");
-        document.getElementById("bodyStyle").value = state.vehicle.body_style || "";
+        setDropdownValue("year", state.vehicle.year || "");
+        setDropdownValue("make", state.vehicle.make || "");
+        await loadModels(state.vehicle.model || "");
+        await loadTrims(state.vehicle.trim || "");
+        setDropdownValue("bodyStyle", state.vehicle.body_style || "");
+        syncVehicleInputs();
         status.className = "status-line success";
         status.textContent = vehicleName(state.vehicle) || "VIN decoded.";
         renderVehicleStrip();
@@ -644,7 +821,11 @@
     function validateStep() {
       if (steps[state.step] === "vin") {
         const vin = document.getElementById("vin").value.trim();
-        if (vin.length !== 17) return setStatus("vinStatus", "Enter a 17-character VIN.", true);
+        syncVehicleInputs();
+        if (vin && vin.length !== 17) return setStatus("vinStatus", "VIN must be 17 characters, or leave it blank and use the dropdowns.", true);
+        if (!vin && (!state.vehicle.year || !state.vehicle.make || !state.vehicle.model)) {
+          return setStatus("vinStatus", "Select year, make, and model, or enter a 17-character VIN.", true);
+        }
       }
       if (steps[state.step] === "mileage") {
         const mileage = Number(document.getElementById("mileage").value);
@@ -666,10 +847,10 @@
         ...state.vehicle,
         vin: document.getElementById("vin").value.trim().toUpperCase(),
         year: document.getElementById("year").value.trim(),
-        make: document.getElementById("make").value.trim().toUpperCase(),
-        model: document.getElementById("model").value.trim().toUpperCase(),
-        trim: document.getElementById("trim").value.trim(),
-        body_style: document.getElementById("bodyStyle").value.trim()
+        make: selectedOrCustomValue("make").toUpperCase(),
+        model: selectedOrCustomValue("model").toUpperCase(),
+        trim: selectedOrCustomValue("trim"),
+        body_style: selectedOrCustomValue("bodyStyle")
       };
     }
 
