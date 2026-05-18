@@ -7,17 +7,17 @@ VENV_PYTHON := $(VENV)/bin/python
 
 setup:
 	$(PYTHON) -m venv $(VENV)
-	$(PIP) install -r requirements-dev.txt
+	$(PIP) install -e ".[dev]"
 
 run:
-	FLASK_DEBUG=1 $(VENV_PYTHON) server.py
+	FLASK_DEBUG=1 $(VENV_PYTHON) -m autotrade_pro
 
 test:
-	PYTHONPATH=src $(VENV_PYTHON) -m pytest
+	$(VENV_PYTHON) -m pytest
 
 refresh-market:
-	PYTHONPATH=src $(VENV_PYTHON) scripts/refresh_market_data.py
+	$(VENV_PYTHON) scripts/refresh_market_data.py
 
 zip:
 	rm -f autotrade-pro.zip
-	zip -r autotrade-pro.zip server.py requirements.txt Dockerfile docker-compose.yml docker-compose.dev.yml Makefile readme.md .gitignore src scripts tests -x "__pycache__/*" "*/__pycache__/*"
+	zip -r autotrade-pro.zip server.py wsgi.py pyproject.toml requirements.txt requirements-dev.txt Procfile runtime.txt README.md readme.md Dockerfile railway.toml docker-compose.yml docker-compose.dev.yml Makefile .env.example .python-version .gitignore .dockerignore .github src scripts tests -x "__pycache__/*" "*/__pycache__/*" "*.egg-info/*"

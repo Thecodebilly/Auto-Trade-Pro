@@ -28,15 +28,32 @@ Without licensed keys, AutoTrade Pro runs with seeded demo market snapshots and 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-python server.py
+pip install -e ".[dev]"
+python -m autotrade_pro
 ```
 
 Open:
 
 - Public app: http://localhost:5000/
 - Admin: http://localhost:5000/admin
+- Healthcheck: http://localhost:5000/healthz
 - Default admin password: `AutoTrade123!`
+
+## Railway
+
+This repo is ready for Railway GitHub deployments:
+
+- `railway.toml` selects the Dockerfile builder and checks `/healthz`.
+- The Dockerfile runs Gunicorn on Railway's injected `$PORT`.
+- Production dependencies stay in `requirements.txt`; test/dev tooling lives in `requirements-dev.txt` and `pyproject.toml` extras.
+
+Set production secrets in Railway variables, especially:
+
+- `AUTOTRADE_SECRET_KEY`
+- `AUTOTRADE_ADMIN_PASSWORD`
+- Optional CRM, SMTP, SMS, and licensed valuation feed variables from `.env.example`
+
+If you attach a Railway volume, set `AUTOTRADE_DATA_DIR=/app/data` so SQLite data and uploads persist across deploys.
 
 ## Docker
 
@@ -79,14 +96,26 @@ year,make,model,trim,region,source,retail_value,wholesale_value,sample_size,days
 Run a one-shot import:
 
 ```bash
-PYTHONPATH=src python scripts/refresh_market_data.py
+python scripts/refresh_market_data.py
 ```
 
 ## Tests
 
 ```bash
-PYTHONPATH=src pytest
+pytest
 ```
+
+After `pip install -e ".[dev]"`, plain `pytest` works because the repo is installed as an editable package. `make test` runs the same suite.
+
+## Importable Entrypoints
+
+This repo is ready for common import/deploy flows:
+
+- Python package import: `from autotrade_pro import create_app`
+- Module run: `python -m autotrade_pro`
+- Console script: `autotrade-pro`
+- WSGI import: `wsgi:app`
+- Procfile: `web: gunicorn wsgi:app --bind 0.0.0.0:$PORT`
 
 ## Packaging
 

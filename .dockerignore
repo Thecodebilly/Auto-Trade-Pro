@@ -1,5 +1,6 @@
 .git
 .gitignore
+.github
 .env
 .env.*
 .venv
@@ -16,4 +17,8 @@ htmlcov
 *.swp
 data
 tests
+*.zip
+*.HEIC
+*.heic
+Login-info.md
 autotrade-pro.zip
