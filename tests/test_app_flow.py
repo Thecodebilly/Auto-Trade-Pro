@@ -93,3 +93,13 @@ def test_admin_requires_login_and_renders_dashboard(tmp_path):
     assert login.status_code == 200
     assert b"Lead Dashboard" in login.data
     assert b"White Label Settings" in login.data
+
+
+def test_healthcheck_returns_ok(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+
+    response = client.get("/healthz")
+
+    assert response.status_code == 200
+    assert response.get_json() == {"ok": True}

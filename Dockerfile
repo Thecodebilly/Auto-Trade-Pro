@@ -11,10 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY server.py .
 COPY src/ src/
-COPY scripts/ scripts/
 
 RUN mkdir -p /app/data
 
 EXPOSE 5000
 
-CMD ["python", "server.py"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 120 server:app"]

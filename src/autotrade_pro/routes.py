@@ -54,6 +54,10 @@ from .workers import refresh_market_data_once
 def create_blueprint(config: AppConfig) -> Blueprint:
     bp = Blueprint("autotrade", __name__)
 
+    @bp.get("/healthz")
+    def healthz() -> Response:
+        return jsonify({"ok": True})
+
     @bp.app_template_filter("currency")
     def currency(value: object) -> str:
         try:

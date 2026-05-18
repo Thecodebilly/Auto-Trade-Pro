@@ -7,7 +7,7 @@ VENV_PYTHON := $(VENV)/bin/python
 
 setup:
 	$(PYTHON) -m venv $(VENV)
-	$(PIP) install -r requirements.txt
+	$(PIP) install -r requirements-dev.txt
 
 run:
 	FLASK_DEBUG=1 $(VENV_PYTHON) server.py
