@@ -36,6 +36,7 @@ Open:
 
 - Public app: http://localhost:5000/
 - Admin: http://localhost:5000/admin
+- Admin performance dashboard: http://localhost:5000/admin/dashboard
 - Healthcheck: http://localhost:5000/healthz
 - Default admin password: `AutoTrade123!`
 

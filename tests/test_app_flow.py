@@ -116,6 +116,74 @@ def test_admin_requires_login_and_renders_dashboard(tmp_path):
     assert b"Lead Dashboard" in login.data
     assert b"White Label Settings" in login.data
     assert b"AI valuation assist" in login.data
+    assert b"/admin/dashboard" in login.data
+
+
+def test_admin_visual_dashboard_renders_charts_and_metrics(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+
+    protected = client.get("/admin/dashboard")
+    assert protected.status_code == 302
+    assert "/admin/login" in protected.headers["Location"]
+
+    valuation_response = client.post(
+        "/api/dealers/south-florida-demo/valuations",
+        data={
+            "vin": "",
+            "mileage": "51000",
+            "vehicle_json": json.dumps(
+                {
+                    "vin": "",
+                    "year": 2022,
+                    "make": "TOYOTA",
+                    "model": "TACOMA",
+                    "trim": "TRD Off-Road",
+                    "body_style": "Pickup",
+                }
+            ),
+            "condition_json": json.dumps(
+                {
+                    "dents": "small",
+                    "interior": "clean",
+                    "warning_lights": "none",
+                    "tires": "7_18",
+                    "brakes": "7_18",
+                    "oil_change": "3_6",
+                }
+            ),
+            "photo_labels_json": json.dumps(["front", "rear", "interior"]),
+        },
+    )
+    assert valuation_response.status_code == 200
+    public_id = valuation_response.get_json()["valuation"]["public_id"]
+
+    appointment_response = client.post(
+        f"/api/valuations/{public_id}/appointments",
+        json={
+            "name": "Taylor Buyer",
+            "email": "taylor@example.com",
+            "phone": "305-555-0142",
+            "scheduled_date": "2026-06-02",
+            "scheduled_time": "2:30 PM",
+            "notes": "",
+            "marketing_consent": False,
+        },
+    )
+    assert appointment_response.status_code == 200
+
+    client.post("/admin/login", data={"password": "test-pass"})
+    dashboard = client.get("/admin/dashboard")
+
+    assert dashboard.status_code == 200
+    assert b"Performance Dashboard" in dashboard.data
+    assert b"Valuation Trend" in dashboard.data
+    assert b"Booking Conversion" in dashboard.data
+    assert b"Offer Bands" in dashboard.data
+    assert b"Market Mix" in dashboard.data
+    assert b'id="valuationTrend"' in dashboard.data
+    assert b"Taylor Buyer" in dashboard.data
+    assert b"100% booking rate" in dashboard.data
 
 
 def test_public_vehicle_screen_has_dropdown_selectors(tmp_path):

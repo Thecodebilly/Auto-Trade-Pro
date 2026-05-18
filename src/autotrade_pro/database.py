@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 from pathlib import Path
 import sqlite3
@@ -770,6 +770,144 @@ def fetch_dashboard_stats(db_path: Path, dealer_id: int) -> dict[str, Any]:
         return dict(row)
 
 
+def fetch_admin_dashboard_metrics(db_path: Path, dealer_id: int) -> dict[str, Any]:
+    today = datetime.now(timezone.utc).date()
+    with connect(db_path) as conn:
+        rows = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT v.id, v.public_id, v.year, v.make, v.model, v.trim,
+                       v.body_style, v.mileage, v.condition_score,
+                       v.condition_grade, v.trade_offer, v.retail_market_value,
+                       v.cap_value, v.data_quality_score, v.status,
+                       v.offer_expires_at, v.created_at,
+                       CASE WHEN a.id IS NULL THEN 0 ELSE 1 END AS has_appointment
+                FROM valuations v
+                LEFT JOIN appointments a ON a.valuation_id = v.id
+                WHERE v.dealer_id = ?
+                ORDER BY v.created_at DESC
+                """,
+                (dealer_id,),
+            ).fetchall()
+        ]
+
+        appointment_rows = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT a.scheduled_date, a.scheduled_time, a.status,
+                       a.confirmation_code, v.public_id, v.year, v.make,
+                       v.model, v.trade_offer, c.name AS customer_name
+                FROM appointments a
+                JOIN valuations v ON v.id = a.valuation_id
+                LEFT JOIN customers c ON c.valuation_id = v.id
+                WHERE a.dealer_id = ?
+                  AND a.scheduled_date >= ?
+                ORDER BY a.scheduled_date ASC, a.scheduled_time ASC
+                LIMIT 6
+                """,
+                (dealer_id, today.isoformat()),
+            ).fetchall()
+        ]
+
+    total = len(rows)
+    appointments = sum(int(row["has_appointment"]) for row in rows)
+    offers = [int(row["trade_offer"] or 0) for row in rows]
+    conditions = [float(row["condition_score"] or 0) for row in rows]
+    data_quality = [float(row["data_quality_score"] or 0) for row in rows]
+    mileages = [int(row["mileage"] or 0) for row in rows]
+    expiring_cutoff = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(
+        timespec="seconds"
+    )
+
+    summary = {
+        "total_valuations": total,
+        "appointments": appointments,
+        "appointment_rate": _percentage(appointments, total),
+        "pipeline_value": sum(offers),
+        "average_offer": _average(offers),
+        "highest_offer": max(offers, default=0),
+        "average_condition": round(_average(conditions), 1),
+        "average_data_quality": round(_average(data_quality), 2),
+        "average_mileage": round(_average(mileages)),
+        "expiring_soon": sum(
+            1
+            for row in rows
+            if row["status"] == "offer_ready"
+            and str(row.get("offer_expires_at") or "") <= expiring_cutoff
+        ),
+    }
+
+    daily_lookup: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        day = str(row.get("created_at") or "")[:10]
+        if not day:
+            continue
+        bucket = daily_lookup.setdefault(
+            day, {"date": day, "valuations": 0, "pipeline_value": 0, "offers": []}
+        )
+        bucket["valuations"] += 1
+        bucket["pipeline_value"] += int(row["trade_offer"] or 0)
+        bucket["offers"].append(int(row["trade_offer"] or 0))
+
+    trend = []
+    for day in _last_days(today, 14):
+        bucket = daily_lookup.get(day.isoformat(), {})
+        offers_for_day = bucket.get("offers", [])
+        trend.append(
+            {
+                "date": day.isoformat(),
+                "label": _short_day_label(day),
+                "valuations": int(bucket.get("valuations", 0)),
+                "pipeline_value": int(bucket.get("pipeline_value", 0)),
+                "average_offer": _average(offers_for_day),
+            }
+        )
+
+    high_quality = sum(1 for row in rows if float(row["data_quality_score"] or 0) >= 0.8)
+    funnel = [
+        {"label": "Valuations", "value": total},
+        {"label": "Ready offers", "value": sum(1 for row in rows if row["status"])},
+        {"label": "Booked", "value": appointments},
+        {"label": "High quality", "value": high_quality},
+    ]
+
+    return {
+        "summary": summary,
+        "trend": trend,
+        "funnel": _with_percentages(funnel, max(total, 1)),
+        "statuses": _count_dimension(rows, "status"),
+        "conditions": _ordered_counts(
+            rows,
+            "condition_grade",
+            ["Excellent", "Good", "Fair", "Needs Review"],
+        ),
+        "body_styles": _count_dimension(rows, "body_style", limit=6),
+        "makes": _count_dimension(rows, "make", limit=6),
+        "offer_ranges": _range_counts(
+            offers,
+            [
+                ("Under $10k", 0, 10_000),
+                ("$10k-$20k", 10_000, 20_000),
+                ("$20k-$35k", 20_000, 35_000),
+                ("$35k-$50k", 35_000, 50_000),
+                ("$50k+", 50_000, None),
+            ],
+        ),
+        "mileage_ranges": _range_counts(
+            mileages,
+            [
+                ("Under 25k", 0, 25_000),
+                ("25k-75k", 25_000, 75_000),
+                ("75k-125k", 75_000, 125_000),
+                ("125k+", 125_000, None),
+            ],
+        ),
+        "appointments": appointment_rows,
+    }
+
+
 def add_crm_event(
     db_path: Path,
     *,
@@ -829,3 +967,74 @@ def list_data_source_status(db_path: Path) -> list[dict[str, Any]]:
             """
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+def _average(values: list[int] | list[float]) -> float:
+    return round(sum(values) / len(values), 2) if values else 0
+
+
+def _percentage(value: int, total: int) -> int:
+    return round((value / total) * 100) if total else 0
+
+
+def _last_days(today: date, count: int) -> list[date]:
+    return [today - timedelta(days=count - index - 1) for index in range(count)]
+
+
+def _short_day_label(day: date) -> str:
+    return f"{day.strftime('%b')} {day.day}"
+
+
+def _with_percentages(
+    rows: list[dict[str, Any]], total: int
+) -> list[dict[str, Any]]:
+    return [
+        {**row, "percent": _percentage(int(row["value"]), total)}
+        for row in rows
+    ]
+
+
+def _count_dimension(
+    rows: list[dict[str, Any]], key: str, limit: int | None = None
+) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        label = str(row.get(key) or "Unknown").replace("_", " ").strip() or "Unknown"
+        counts[label] = counts.get(label, 0) + 1
+    total = sum(counts.values())
+    items = [
+        {"label": label.title() if key == "status" else label, "value": value}
+        for label, value in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+    ]
+    if limit:
+        items = items[:limit]
+    return _with_percentages(items, max(total, 1))
+
+
+def _ordered_counts(
+    rows: list[dict[str, Any]], key: str, order: list[str]
+) -> list[dict[str, Any]]:
+    counts = {label: 0 for label in order}
+    for row in rows:
+        label = str(row.get(key) or "Unknown")
+        counts[label] = counts.get(label, 0) + 1
+    total = sum(counts.values())
+    return _with_percentages(
+        [{"label": label, "value": counts[label]} for label in order],
+        max(total, 1),
+    )
+
+
+def _range_counts(
+    values: list[int], ranges: list[tuple[str, int, int | None]]
+) -> list[dict[str, Any]]:
+    total = len(values)
+    rows = []
+    for label, lower, upper in ranges:
+        count = sum(
+            1
+            for value in values
+            if value >= lower and (upper is None or value < upper)
+        )
+        rows.append({"label": label, "value": count})
+    return _with_percentages(rows, max(total, 1))

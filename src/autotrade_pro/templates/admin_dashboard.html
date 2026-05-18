@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Performance Dashboard | AutoTrade Pro Admin</title>
+  <style>
+    :root {
+      --primary: {{ dealer.primary_color }};
+      --accent: {{ dealer.accent_color }};
+      --ink: #17212b;
+      --muted: #607080;
+      --line: #d8e0e7;
+      --soft: #f4f7f8;
+      --canvas: #fbfcfd;
+      --teal: #197f8d;
+      --green: #24745a;
+      --amber: #c77915;
+      --rose: #b6475b;
+      --violet: #6d5bd0;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: #edf2f5;
+    }
+    button, input, select { font: inherit; }
+    a { color: var(--primary); }
+    .layout {
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    aside {
+      background: #15212c;
+      color: #fff;
+      padding: 22px;
+    }
+    .brand { font-size: 22px; font-weight: 900; letter-spacing: 0; margin-bottom: 24px; }
+    .dealer-switch { display: grid; gap: 8px; margin-bottom: 24px; }
+    aside select {
+      width: 100%;
+      background: #22313f;
+      color: #fff;
+      border: 1px solid #33485a;
+      border-radius: 6px;
+      min-height: 42px;
+      padding: 9px;
+    }
+    label { display: grid; gap: 6px; font-size: 13px; color: #45525f; font-weight: 800; }
+    aside label { color: #dfe8ee; }
+    nav { display: grid; gap: 8px; }
+    nav a, aside button {
+      color: #dfe8ee;
+      text-decoration: none;
+      min-height: 40px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      padding: 9px 10px;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+    }
+    nav a:hover, nav a.active, aside button:hover { background: #22313f; }
+    main { padding: clamp(20px, 4vw, 34px); }
+    .topline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    h1, h2, h3 { letter-spacing: 0; }
+    h1 { margin: 0; font-size: 32px; }
+    h2 { margin: 0; font-size: 20px; }
+    h3 { margin: 0; font-size: 15px; }
+    .muted { color: var(--muted); }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .btn {
+      min-height: 42px;
+      border: 0;
+      border-radius: 6px;
+      padding: 9px 13px;
+      color: #fff;
+      background: var(--primary);
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }
+    .btn.secondary { color: var(--primary); background: #e7eef3; }
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .kpi, .panel {
+      background: var(--canvas);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 14px 34px rgba(23, 33, 43, 0.06);
+    }
+    .kpi {
+      min-height: 132px;
+      padding: 16px;
+      display: grid;
+      align-content: space-between;
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi:before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 5px;
+      background: var(--kpi-color, var(--primary));
+    }
+    .kpi span {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 850;
+    }
+    .kpi strong { display: block; margin-top: 8px; font-size: 28px; }
+    .kpi small { color: var(--muted); font-weight: 750; }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.85fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .panel { padding: 18px; margin-bottom: 18px; }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+    .chart-wrap {
+      min-height: 286px;
+      border: 1px solid #e2e8ee;
+      border-radius: 8px;
+      background: #fff;
+      padding: 12px;
+    }
+    canvas { display: block; width: 100%; height: 260px; }
+    .bar-list, .funnel, .source-list, .lead-list, .split-list { display: grid; gap: 10px; }
+    .bar-row {
+      display: grid;
+      grid-template-columns: minmax(110px, 0.9fr) minmax(0, 1.4fr) 54px;
+      gap: 10px;
+      align-items: center;
+      min-height: 32px;
+    }
+    .bar-label { font-weight: 800; font-size: 13px; overflow-wrap: anywhere; }
+    .bar-track {
+      height: 12px;
+      background: #e6edf1;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      width: 0;
+      min-width: 2px;
+      border-radius: 999px;
+      background: var(--bar-color, var(--primary));
+    }
+    .bar-value {
+      color: var(--muted);
+      text-align: right;
+      font-size: 13px;
+      font-weight: 850;
+    }
+    .two-column {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+    .mini-panel {
+      border: 1px solid #e2e8ee;
+      border-radius: 8px;
+      background: #fff;
+      padding: 14px;
+    }
+    .funnel-row {
+      display: grid;
+      grid-template-columns: 104px minmax(0, 1fr) 56px;
+      gap: 10px;
+      align-items: center;
+    }
+    .funnel-label { font-weight: 850; font-size: 13px; }
+    .ring-wrap {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .ring {
+      width: 106px;
+      height: 106px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, #fff 0 54%, transparent 55%),
+        conic-gradient(var(--green) calc(var(--score) * 1%), #dfe7ec 0);
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+      font-weight: 900;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      padding: 11px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+    th { color: #40505f; font-size: 12px; text-transform: uppercase; letter-spacing: 0; }
+    tr:last-child td { border-bottom: 0; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 4px 8px;
+      background: #e9f2f7;
+      color: var(--primary);
+      font-weight: 800;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .source-row, .lead-row {
+      border: 1px solid #e2e8ee;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+    }
+    .source-row strong, .lead-row strong { display: block; }
+    .source-row span, .lead-row span { color: var(--muted); font-size: 13px; }
+    .empty {
+      border: 1px dashed #c9d4dc;
+      border-radius: 8px;
+      min-height: 86px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      text-align: center;
+      padding: 18px;
+      background: #fff;
+    }
+    @media (max-width: 1120px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; }
+      .kpi-grid, .dashboard-grid, .two-column { grid-template-columns: 1fr; }
+      .topline { flex-direction: column; align-items: flex-start; }
+      .bar-row, .funnel-row { grid-template-columns: 1fr; }
+      .bar-value { text-align: left; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <div class="brand">AutoTrade Pro</div>
+      <form class="dealer-switch" method="get" action="/admin/dashboard">
+        <label>
+          Dealer
+          <select name="dealer" onchange="this.form.submit()">
+            {% for item in dealers %}
+              <option value="{{ item.slug }}" {% if item.id == dealer.id %}selected{% endif %}>{{ item.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+      <nav>
+        <a class="active" href="/admin/dashboard?dealer={{ dealer.slug }}">Dashboard</a>
+        <a href="/admin?dealer={{ dealer.slug }}#leads">Leads</a>
+        <a href="/admin?dealer={{ dealer.slug }}#dealer">White Label</a>
+        <a href="/admin?dealer={{ dealer.slug }}#incentives">Incentives</a>
+        <a href="/admin?dealer={{ dealer.slug }}#feeds">Data Sources</a>
+        <a href="/d/{{ dealer.slug }}">Public App</a>
+        <a href="/admin/export.csv">Export CSV</a>
+      </nav>
+      <form method="post" action="/admin/logout" style="margin-top:24px;"><button type="submit">Sign out</button></form>
+    </aside>
+
+    <main>
+      <div class="topline">
+        <div>
+          <h1>Performance Dashboard</h1>
+          <div class="muted">{{ dealer.name }} · {{ dealer.city }}, {{ dealer.state }}</div>
+        </div>
+        <div class="actions">
+          <a class="btn secondary" href="/admin?dealer={{ dealer.slug }}">Settings</a>
+          <a class="btn" href="/d/{{ dealer.slug }}">Open valuation app</a>
+        </div>
+      </div>
+
+      <section class="kpi-grid" aria-label="Dashboard summary">
+        <div class="kpi" style="--kpi-color: var(--teal);">
+          <div><span>Total valuations</span><strong>{{ insights.summary.total_valuations }}</strong></div>
+          <small>{{ insights.summary.expiring_soon }} offers expiring soon</small>
+        </div>
+        <div class="kpi" style="--kpi-color: var(--green);">
+          <div><span>Pipeline value</span><strong>{{ insights.summary.pipeline_value|currency }}</strong></div>
+          <small>{{ insights.summary.highest_offer|currency }} highest offer</small>
+        </div>
+        <div class="kpi" style="--kpi-color: var(--amber);">
+          <div><span>Average offer</span><strong>{{ insights.summary.average_offer|currency }}</strong></div>
+          <small>{{ insights.summary.average_mileage }} avg miles</small>
+        </div>
+        <div class="kpi" style="--kpi-color: var(--rose);">
+          <div><span>Appointments</span><strong>{{ insights.summary.appointments }}</strong></div>
+          <small>{{ insights.summary.appointment_rate }}% booking rate</small>
+        </div>
+      </section>
+
+      <div class="dashboard-grid">
+        <div>
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Valuation Trend</h2>
+                <div class="muted">Daily valuation volume and average offer</div>
+              </div>
+              <span class="pill">14 days</span>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="valuationTrend" aria-label="Valuation trend chart"></canvas>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Market Mix</h2>
+                <div class="muted">Vehicles entering the appraisal workflow</div>
+              </div>
+            </div>
+            <div class="two-column">
+              <div class="mini-panel">
+                <h3>Top Makes</h3>
+                <div class="bar-list">
+                  {% for item in insights.makes %}
+                    <div class="bar-row">
+                      <div class="bar-label">{{ item.label }}</div>
+                      <div class="bar-track"><div class="bar-fill" style="--bar-color: var(--teal); width: {{ item.percent }}%;"></div></div>
+                      <div class="bar-value">{{ item.value }}</div>
+                    </div>
+                  {% else %}
+                    <div class="empty">No make data yet.</div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="mini-panel">
+                <h3>Body Styles</h3>
+                <div class="bar-list">
+                  {% for item in insights.body_styles %}
+                    <div class="bar-row">
+                      <div class="bar-label">{{ item.label }}</div>
+                      <div class="bar-track"><div class="bar-fill" style="--bar-color: var(--violet); width: {{ item.percent }}%;"></div></div>
+                      <div class="bar-value">{{ item.value }}</div>
+                    </div>
+                  {% else %}
+                    <div class="empty">No body style data yet.</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Lead Flow</h2>
+                <div class="muted">Newest valuation records and appointment status</div>
+              </div>
+              <a href="/admin?dealer={{ dealer.slug }}#leads">View all</a>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Lead</th>
+                  <th>Vehicle</th>
+                  <th>Offer</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for lead in leads %}
+                  <tr>
+                    <td>
+                      <strong>{{ lead.customer_name or "Contact pending" }}</strong><br>
+                      <span class="muted">{{ lead.customer_email or lead.public_id }}</span>
+                    </td>
+                    <td>{{ lead.year or "" }} {{ lead.make }} {{ lead.model }}<br><span class="muted">{{ lead.mileage }} mi</span></td>
+                    <td><strong>{{ lead.trade_offer|currency }}</strong><br><span class="muted">{{ lead.condition_grade }}</span></td>
+                    <td><span class="pill">{{ lead.status.replace("_", " ") }}</span></td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="4" class="muted">No valuation leads yet.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </section>
+        </div>
+
+        <div>
+          <section class="panel">
+            <div class="ring-wrap">
+              <div class="ring" style="--score: {{ insights.summary.appointment_rate }};">{{ insights.summary.appointment_rate }}%</div>
+              <div>
+                <h2>Booking Conversion</h2>
+                <div class="muted">{{ insights.summary.appointments }} appointments from {{ insights.summary.total_valuations }} valuations</div>
+              </div>
+            </div>
+            <div class="funnel">
+              {% for item in insights.funnel %}
+                <div class="funnel-row">
+                  <div class="funnel-label">{{ item.label }}</div>
+                  <div class="bar-track"><div class="bar-fill" style="--bar-color: var(--green); width: {{ item.percent }}%;"></div></div>
+                  <div class="bar-value">{{ item.value }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Offer Bands</h2>
+                <div class="muted">Trade value distribution</div>
+              </div>
+            </div>
+            <div class="bar-list">
+              {% for item in insights.offer_ranges %}
+                <div class="bar-row">
+                  <div class="bar-label">{{ item.label }}</div>
+                  <div class="bar-track"><div class="bar-fill" style="--bar-color: var(--amber); width: {{ item.percent }}%;"></div></div>
+                  <div class="bar-value">{{ item.value }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Condition Mix</h2>
+                <div class="muted">{{ "%.1f"|format(insights.summary.average_condition or 0) }} average condition score</div>
+              </div>
+            </div>
+            <div class="bar-list">
+              {% for item in insights.conditions %}
+                <div class="bar-row">
+                  <div class="bar-label">{{ item.label }}</div>
+                  <div class="bar-track"><div class="bar-fill" style="--bar-color: var(--rose); width: {{ item.percent }}%;"></div></div>
+                  <div class="bar-value">{{ item.value }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Mileage Bands</h2>
+                <div class="muted">Reported odometer ranges</div>
+              </div>
+            </div>
+            <div class="bar-list">
+              {% for item in insights.mileage_ranges %}
+                <div class="bar-row">
+                  <div class="bar-label">{{ item.label }}</div>
+                  <div class="bar-track"><div class="bar-fill" style="--bar-color: var(--teal); width: {{ item.percent }}%;"></div></div>
+                  <div class="bar-value">{{ item.value }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Source Health</h2>
+                <div class="muted">{{ "%.0f"|format((insights.summary.average_data_quality or 0) * 100) }}% average valuation quality</div>
+              </div>
+            </div>
+            <div class="source-list">
+              {% for source in data_sources %}
+                <div class="source-row">
+                  <strong>{{ source.source }}</strong>
+                  <span>{{ source.rows_count }} rows · {{ source.region }} · {{ ((source.average_confidence or 0) * 100)|round|int }}% confidence</span>
+                </div>
+              {% else %}
+                <div class="empty">No market snapshots yet.</div>
+              {% endfor %}
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Appointments</h2>
+                <div class="muted">Upcoming appraisal commitments</div>
+              </div>
+            </div>
+            <div class="lead-list">
+              {% for appointment in insights.appointments %}
+                <div class="lead-row">
+                  <strong>{{ appointment.scheduled_date }} · {{ appointment.scheduled_time }}</strong>
+                  <span>{{ appointment.customer_name or appointment.public_id }} · {{ appointment.year or "" }} {{ appointment.make }} {{ appointment.model }} · {{ appointment.trade_offer|currency }}</span>
+                </div>
+              {% else %}
+                <div class="empty">No appointments booked yet.</div>
+              {% endfor %}
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const dashboard = {{ insights|tojson }};
+
+    function drawTrend() {
+      const canvas = document.getElementById("valuationTrend");
+      if (!canvas) return;
+      const container = canvas.parentElement;
+      const width = Math.max(320, container.clientWidth - 24);
+      const height = 260;
+      const scale = window.devicePixelRatio || 1;
+      canvas.width = width * scale;
+      canvas.height = height * scale;
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      const points = dashboard.trend || [];
+      const maxCount = Math.max(1, ...points.map((point) => point.valuations));
+      const maxOffer = Math.max(1, ...points.map((point) => point.average_offer));
+      const left = 46;
+      const right = width - 18;
+      const top = 22;
+      const bottom = height - 46;
+      const chartWidth = right - left;
+      const chartHeight = bottom - top;
+
+      ctx.strokeStyle = "#d8e0e7";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= 4; i += 1) {
+        const y = top + (chartHeight / 4) * i;
+        ctx.moveTo(left, y);
+        ctx.lineTo(right, y);
+      }
+      ctx.stroke();
+
+      ctx.fillStyle = "#607080";
+      ctx.font = "12px Inter, system-ui, sans-serif";
+      ctx.textAlign = "right";
+      ctx.fillText(`${maxCount}`, left - 10, top + 4);
+      ctx.fillText("0", left - 10, bottom + 4);
+
+      const barWidth = Math.max(8, chartWidth / Math.max(points.length, 1) * 0.48);
+      points.forEach((point, index) => {
+        const x = left + (chartWidth / Math.max(points.length - 1, 1)) * index;
+        const barHeight = (point.valuations / maxCount) * chartHeight;
+        ctx.fillStyle = "rgba(25, 127, 141, 0.18)";
+        ctx.fillRect(x - barWidth / 2, bottom - barHeight, barWidth, barHeight);
+      });
+
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim() || "#184E77";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      points.forEach((point, index) => {
+        const x = left + (chartWidth / Math.max(points.length - 1, 1)) * index;
+        const y = bottom - (point.average_offer / maxOffer) * chartHeight;
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      points.forEach((point, index) => {
+        const x = left + (chartWidth / Math.max(points.length - 1, 1)) * index;
+        const y = bottom - (point.average_offer / maxOffer) * chartHeight;
+        ctx.fillStyle = "#fff";
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--primary").trim() || "#184E77";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      });
+
+      ctx.fillStyle = "#607080";
+      ctx.textAlign = "center";
+      points.forEach((point, index) => {
+        if ((index % 3 === 0 && index < points.length - 2) || index === points.length - 1) {
+          const x = left + (chartWidth / Math.max(points.length - 1, 1)) * index;
+          ctx.fillText(point.label, x, height - 18);
+        }
+      });
+
+      const hasData = points.some((point) => point.valuations > 0);
+      if (!hasData) {
+        ctx.fillStyle = "#607080";
+        ctx.font = "14px Inter, system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("No valuations yet", left + chartWidth / 2, top + chartHeight / 2);
+      }
+    }
+
+    window.addEventListener("load", drawTrend);
+    window.addEventListener("resize", drawTrend);
+  </script>
+</body>
+</html>

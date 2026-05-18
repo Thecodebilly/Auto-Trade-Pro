@@ -37,6 +37,7 @@ from .database import (
     add_vehicle_photo,
     create_customer_and_appointment,
     create_valuation,
+    fetch_admin_dashboard_metrics,
     fetch_dashboard_stats,
     fetch_dealer_by_slug,
     fetch_first_dealer,
@@ -324,6 +325,26 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             leads=leads,
             incentives=incentives,
             crm_events=crm_events,
+            data_sources=data_sources,
+        )
+
+    @bp.get("/admin/dashboard")
+    @_require_admin
+    def admin_visual_dashboard() -> str:
+        dealers = list_dealers(config.database_path)
+        selected_slug = request.args.get("dealer") or (dealers[0]["slug"] if dealers else "")
+        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (dealers[0] if dealers else None)
+        if dealer is None:
+            abort(500)
+        insights = fetch_admin_dashboard_metrics(config.database_path, dealer["id"])
+        leads = list_dealer_leads(config.database_path, dealer["id"], limit=8)
+        data_sources = list_data_source_status(config.database_path)
+        return render_template(
+            "admin_dashboard.html",
+            dealers=dealers,
+            dealer=dealer,
+            insights=insights,
+            leads=leads,
             data_sources=data_sources,
         )
 
