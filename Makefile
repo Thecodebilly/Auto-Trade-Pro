@@ -3,7 +3,7 @@ VENV ?= .venv
 PIP := $(VENV)/bin/pip
 VENV_PYTHON := $(VENV)/bin/python
 
-.PHONY: setup run test init-db refresh-market zip
+.PHONY: setup run test init-db refresh-market real-trade-fixture zip
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -20,6 +20,9 @@ init-db:
 
 refresh-market:
 	$(VENV_PYTHON) scripts/refresh_market_data.py
+
+real-trade-fixture:
+	$(VENV_PYTHON) scripts/build_real_trade_in_fixture.py
 
 zip:
 	rm -f autotrade-pro.zip

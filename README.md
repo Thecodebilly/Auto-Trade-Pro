@@ -123,6 +123,14 @@ pytest
 
 After `pip install -e ".[dev]"`, plain `pytest` works because the repo is installed as an editable package. `make test` runs the same suite.
 
+The 5,000-vehicle valuation matrix uses checked-in real year/make/model/configuration records from the public EPA FuelEconomy.gov `vehicles.csv` dataset. Regenerate that fixture with:
+
+```bash
+make real-trade-fixture
+```
+
+The EPA fixture provides real vehicle identities; trade-in market values in the tests are deterministic scenarios built around those vehicles because EPA does not publish transaction trade values.
+
 ## Importable Entrypoints
 
 This repo is ready for common import/deploy flows:

@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
 from typing import Any
 
 import pytest
@@ -10,37 +13,44 @@ from autotrade_pro.valuation import calculate_valuation, score_condition
 
 TRADE_IN_CASE_COUNT = 5_000
 CURRENT_YEAR = datetime.now(timezone.utc).year
+FIXTURE_PATH = Path(__file__).parent / "fixtures" / "real_trade_in_vehicles.json"
+REAL_VEHICLE_FIXTURE = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+REAL_VEHICLES: list[dict[str, Any]] = REAL_VEHICLE_FIXTURE["vehicles"]
+EPA_SOURCE = "EPA FuelEconomy.gov vehicles.csv"
 
-VEHICLE_CATALOG = (
-    ("TOYOTA", "COROLLA", "LE", "Sedan", 23500),
-    ("HONDA", "CIVIC", "EX", "Sedan", 26500),
-    ("FORD", "F-150", "Lariat", "Pickup", 58500),
-    ("CHEVROLET", "SILVERADO", "LT", "Pickup", 54000),
-    ("TESLA", "MODEL 3", "Long Range", "EV Sedan", 47000),
-    ("BMW", "3 SERIES", "330i", "Sedan", 52000),
-    ("MERCEDES-BENZ", "S-CLASS", "S 580", "Luxury Sedan", 124000),
-    ("LEXUS", "RX", "350", "SUV", 61000),
-    ("SUBARU", "OUTBACK", "Limited", "Wagon", 39000),
-    ("JEEP", "WRANGLER", "Rubicon", "SUV", 52000),
-    ("RAM", "1500", "Big Horn", "Pickup", 57000),
-    ("PORSCHE", "911", "Carrera", "Coupe", 142000),
-    ("NISSAN", "LEAF", "SV", "EV Hatchback", 32500),
-    ("HYUNDAI", "ELANTRA", "SEL", "Sedan", 25000),
-    ("KIA", "TELLURIDE", "SX", "SUV", 50000),
-    ("DODGE", "GRAND CARAVAN", "SXT", "Minivan", 34000),
-    ("MAZDA", "MX-5 MIATA", "Grand Touring", "Convertible", 36000),
-    ("GMC", "YUKON", "Denali", "SUV", 78000),
-    ("TOYOTA", "RAV4", "XLE", "SUV", 36000),
-    ("HONDA", "CR-V", "EX-L", "SUV", 38500),
-    ("FORD", "MUSTANG", "GT", "Coupe", 48000),
-    ("CHEVROLET", "BOLT", "Premier", "EV Hatchback", 31500),
-    ("VOLVO", "XC90", "Inscription", "SUV", 68000),
-    ("TOYOTA", "PRIUS", "XLE", "Hybrid Hatchback", 33000),
-    ("ACURA", "MDX", "Technology", "SUV", 59000),
-    ("CADILLAC", "ESCALADE", "Premium Luxury", "SUV", 102000),
-    ("MINI", "COOPER", "S", "Hatchback", 34000),
-    ("CHRYSLER", "PACIFICA", "Touring L", "Minivan", 48500),
-)
+MAKE_VALUE_MULTIPLIERS = {
+    "bugatti rimac": 32.0,
+    "bugatti": 28.0,
+    "koenigsegg": 24.0,
+    "pagani": 22.0,
+    "rolls-royce": 8.5,
+    "ferrari": 7.2,
+    "lamborghini": 6.8,
+    "mclaren": 6.2,
+    "bentley": 5.6,
+    "maybach": 5.2,
+    "aston martin": 4.8,
+    "maserati": 3.4,
+    "porsche": 3.0,
+    "land rover": 2.1,
+    "rivian": 2.0,
+    "lucid": 1.9,
+    "cadillac": 1.7,
+    "mercedes-benz": 1.7,
+    "bmw alpina": 1.7,
+    "bmw": 1.55,
+    "audi": 1.5,
+    "lexus": 1.4,
+    "lincoln": 1.35,
+    "genesis": 1.32,
+    "tesla": 1.3,
+    "acura": 1.22,
+    "volvo": 1.2,
+    "infiniti": 1.18,
+    "ram": 1.16,
+    "gmc": 1.15,
+    "jeep": 1.12,
+}
 
 CONDITION_PROFILES = (
     (
@@ -156,11 +166,65 @@ def _mileage_for_case(index: int, age: int) -> int:
     return min(360_000, mileage)
 
 
-def _retail_value_for_case(base_msrp: int, age: int, mileage: int) -> int:
+def _retail_value_for_case(reference_new_value: int, age: int, mileage: int) -> int:
     expected = age * 12_000
     depreciation = min(0.9, 0.085 * age + 0.012 * max(age - 4, 0))
     mileage_factor = max(0.68, min(1.2, 1 + (expected - mileage) / 250_000))
-    return _round_to_50(max(1_800, base_msrp * (1 - depreciation) * mileage_factor))
+    return _round_to_50(
+        max(1_800, reference_new_value * (1 - depreciation) * mileage_factor)
+    )
+
+
+def _reference_new_value_for_vehicle(vehicle: dict[str, Any]) -> int:
+    vehicle_class = str(vehicle.get("body_style") or "").lower()
+    base_value = 32_000
+    if "subcompact" in vehicle_class or "minicompact" in vehicle_class:
+        base_value = 25_000
+    elif "compact" in vehicle_class:
+        base_value = 29_000
+    elif "midsize" in vehicle_class:
+        base_value = 34_000
+    elif "large" in vehicle_class:
+        base_value = 42_000
+    elif "two seaters" in vehicle_class:
+        base_value = 58_000
+    elif "small pickup" in vehicle_class:
+        base_value = 36_000
+    elif "standard pickup" in vehicle_class:
+        base_value = 48_000
+    elif "small sport utility" in vehicle_class:
+        base_value = 39_000
+    elif "standard sport utility" in vehicle_class:
+        base_value = 58_000
+    elif "sport utility" in vehicle_class:
+        base_value = 44_000
+    elif "vans" in vehicle_class:
+        base_value = 39_000
+    elif "station wagons" in vehicle_class:
+        base_value = 35_000
+    elif "special purpose" in vehicle_class:
+        base_value = 36_000
+
+    fuel_type = str(vehicle.get("fuel_type") or "").lower()
+    if "electricity" in fuel_type:
+        base_value += 7_500
+    if "diesel" in fuel_type:
+        base_value += 2_500
+
+    cylinders = vehicle.get("cylinders")
+    if isinstance(cylinders, int):
+        base_value += max(0, cylinders - 4) * 1_200
+
+    displacement = vehicle.get("displacement_liters")
+    if isinstance(displacement, (int, float)) and displacement >= 5:
+        base_value += 3_500
+
+    make = str(vehicle.get("make") or "").lower()
+    multiplier = next(
+        (value for key, value in MAKE_VALUE_MULTIPLIERS.items() if key in make),
+        1.0,
+    )
+    return _round_to_50(base_value * multiplier)
 
 
 def _round_to_50(value: float) -> int:
@@ -172,20 +236,23 @@ def _vin_for_case(index: int, year: int) -> str:
 
 
 def _build_trade_in_cases(count: int = TRADE_IN_CASE_COUNT) -> list[TradeInCase]:
+    if len(REAL_VEHICLES) < count:
+        raise RuntimeError(f"Real vehicle fixture only contains {len(REAL_VEHICLES):,} rows")
+
     cases: list[TradeInCase] = []
-    for index in range(count):
-        make, model, trim, body_style, base_msrp = VEHICLE_CATALOG[index % len(VEHICLE_CATALOG)]
-        age = (index * 37 + index // 11) % 46
-        year = CURRENT_YEAR - age
+    for index, source_vehicle in enumerate(REAL_VEHICLES[:count]):
+        year = int(source_vehicle["year"])
+        age = max(0, CURRENT_YEAR - year)
         mileage = _mileage_for_case(index, age)
-        retail_value = _retail_value_for_case(base_msrp, age, mileage)
+        reference_new_value = _reference_new_value_for_vehicle(source_vehicle)
+        retail_value = _retail_value_for_case(reference_new_value, age, mileage)
         wholesale_value = _round_to_50(
             min(retail_value * 0.9, max(900, retail_value * (0.64 + (index % 9) * 0.025)))
         )
         comparable_value = _round_to_50(retail_value * (0.92 + (index % 11) * 0.018))
         confidence = round(0.45 + (index % 53) / 100, 2)
         answers, photo_labels = CONDITION_PROFILES[index % len(CONDITION_PROFILES)]
-        case_id = f"{index:04d}-{year}-{make}-{model}".lower().replace(" ", "-")
+        case_id = _case_id(index, source_vehicle)
         market = MarketDataBundle(
             region="national_test_matrix",
             auction_value=wholesale_value,
@@ -194,13 +261,19 @@ def _build_trade_in_cases(count: int = TRADE_IN_CASE_COUNT) -> list[TradeInCase]
             confidence=confidence,
             signals=[
                 MarketSignal(
-                    source="synthetic_trade_in_matrix",
+                    source="epa_real_vehicle_test_matrix",
                     retail_value=retail_value,
                     wholesale_value=wholesale_value,
                     sample_size=8 + index % 120,
                     days_supply=10 + index % 95,
                     confidence=confidence,
-                    raw={"case_id": case_id, "base_msrp": base_msrp},
+                    raw={
+                        "case_id": case_id,
+                        "source": source_vehicle["source"],
+                        "source_id": source_vehicle["source_id"],
+                        "reference_new_value": reference_new_value,
+                        "value_basis": "deterministic_test_scenario",
+                    },
                 )
             ],
             notes=[],
@@ -215,10 +288,14 @@ def _build_trade_in_cases(count: int = TRADE_IN_CASE_COUNT) -> list[TradeInCase]
                 vehicle={
                     "vin": _vin_for_case(index, year),
                     "year": year,
-                    "make": make,
-                    "model": model,
-                    "trim": trim,
-                    "body_style": body_style,
+                    "make": source_vehicle["make"],
+                    "model": source_vehicle["model"],
+                    "trim": source_vehicle["trim"],
+                    "body_style": source_vehicle["body_style"],
+                    "drive": source_vehicle["drive"],
+                    "fuel_type": source_vehicle["fuel_type"],
+                    "source": source_vehicle["source"],
+                    "source_id": source_vehicle["source_id"],
                 },
                 mileage=mileage,
                 condition_answers=dict(answers),
@@ -227,6 +304,14 @@ def _build_trade_in_cases(count: int = TRADE_IN_CASE_COUNT) -> list[TradeInCase]
             )
         )
     return cases
+
+
+def _case_id(index: int, vehicle: dict[str, Any]) -> str:
+    identity = (
+        f"{index:04d}-{vehicle['year']}-{vehicle['make']}-"
+        f"{vehicle['model']}-{vehicle['source_id']}"
+    )
+    return re.sub(r"[^a-z0-9]+", "-", identity.lower()).strip("-")
 
 
 TRADE_IN_CASES = _build_trade_in_cases()
@@ -254,7 +339,12 @@ def test_offer_never_exceeds_retail_cap():
     )
     result = calculate_valuation(
         dealer={"max_retail_percent": 0.95, "valuation_hold_days": 10},
-        vehicle={"vin": "1HGCM82633A004352", "year": 2024, "make": "HONDA", "model": "ACCORD"},
+        vehicle={
+            "vin": "1HGCM82633A004352",
+            "year": 2024,
+            "make": "HONDA",
+            "model": "ACCORD",
+        },
         mileage=1000,
         condition_answers={
             "dents": "none",
@@ -294,7 +384,9 @@ def test_trade_in_case_matrix_has_wide_vehicle_spread():
     years = [case.vehicle["year"] for case in TRADE_IN_CASES]
     mileages = [case.mileage for case in TRADE_IN_CASES]
     makes = {case.vehicle["make"] for case in TRADE_IN_CASES}
+    models = {case.vehicle["model"] for case in TRADE_IN_CASES}
     body_styles = {case.vehicle["body_style"] for case in TRADE_IN_CASES}
+    source_ids = {case.vehicle["source_id"] for case in TRADE_IN_CASES}
     grades = {
         score_condition(case.condition_answers, case.photo_labels)[1]
         for case in TRADE_IN_CASES
@@ -302,19 +394,22 @@ def test_trade_in_case_matrix_has_wide_vehicle_spread():
     retail_values = [case.market.retail_value for case in TRADE_IN_CASES]
 
     assert len(TRADE_IN_CASES) == 5_000
-    assert min(years) <= CURRENT_YEAR - 40
-    assert max(years) == CURRENT_YEAR
+    assert REAL_VEHICLE_FIXTURE["metadata"]["source"] == EPA_SOURCE
+    assert len(source_ids) == 5_000
+    assert {case.vehicle["source"] for case in TRADE_IN_CASES} == {EPA_SOURCE}
+    assert min(years) <= 1985
+    assert max(years) >= 2026
     assert min(mileages) == 0
     assert max(mileages) >= 300_000
-    assert len(makes) >= 18
+    assert len(makes) >= 80
+    assert len(models) >= 2_000
     assert {
-        "Sedan",
-        "SUV",
-        "Pickup",
-        "Coupe",
-        "Convertible",
-        "Minivan",
-        "EV Hatchback",
+        "Compact Cars",
+        "Midsize Cars",
+        "Standard Pickup Trucks",
+        "Small Sport Utility Vehicle 4WD",
+        "Two Seaters",
+        "Vans",
     }.issubset(body_styles)
     assert grades == {"Excellent", "Good", "Fair", "Needs Review"}
     assert min(retail_values) <= 2_500
@@ -348,3 +443,4 @@ def test_trade_in_case_matrix_values_each_trade(case: TradeInCase):
     assert result.comparable_value == case.market.comparable_value
     assert result.adjustments["mileage"]["reported_mileage"] == case.mileage
     assert result.source_breakdown["signals"][0]["raw"]["case_id"] == case.case_id
+    assert result.source_breakdown["signals"][0]["raw"]["source"] == EPA_SOURCE
