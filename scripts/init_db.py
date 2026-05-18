@@ -14,7 +14,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from autotrade_pro.config import load_config  # noqa: E402
-from autotrade_pro.database import connect, init_db, seed_demo_data  # noqa: E402
+from autotrade_pro.database import connect, database_backend, init_db, seed_demo_data  # noqa: E402
 from autotrade_pro.workers import refresh_market_data_once  # noqa: E402
 
 
@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
     summary = _database_summary(config.database_path)
     summary.update(
         {
+            "database_backend": database_backend(),
             "database_path": str(config.database_path),
             "uploads_path": str(config.uploads_path),
             "default_dealer": config.default_dealer_slug,
@@ -51,7 +52,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(summary, indent=2, sort_keys=True))
     else:
-        print(f"Initialized AutoTrade Pro database: {config.database_path}")
+        print(f"Initialized AutoTrade Pro database backend: {summary['database_backend']}")
+        if summary["database_backend"] == "sqlite":
+            print(f"SQLite file: {config.database_path}")
         print(f"Default dealer: {config.default_dealer_slug}")
         print(f"Dealers: {summary['dealers']}")
         print(f"Incentives: {summary['incentives']}")
@@ -68,7 +71,7 @@ def _database_summary(db_path: Path) -> dict[str, int]:
     tables = ["dealers", "incentives", "market_snapshots", "valuations"]
     with connect(db_path) as conn:
         return {
-            table: int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+            table: int(conn.execute(f"SELECT COUNT(*) AS count FROM {table}").fetchone()["count"])
             for table in tables
         }
 

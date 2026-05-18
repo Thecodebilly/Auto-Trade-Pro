@@ -7,7 +7,7 @@ import pytest
 
 from autotrade_pro import create_app
 from autotrade_pro.config import AppConfig
-from autotrade_pro.database import fetch_dealer_by_slug, update_dealer
+from autotrade_pro.database import database_backend, fetch_dealer_by_slug, update_dealer
 
 
 def _app(tmp_path):
@@ -110,6 +110,13 @@ def test_public_valuation_and_appointment_flow(tmp_path):
     appointment_payload = appointment_response.get_json()
     assert appointment_payload["valuation"]["appointment_status"] == "booked"
     assert appointment_payload["valuation"]["confirmation_code"].startswith("AT-")
+
+
+def test_database_backend_uses_postgres_url_when_configured(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:pass@example.com:5432/app")
+    assert database_backend() == "postgresql"
+    monkeypatch.delenv("DATABASE_URL")
+    assert database_backend() == "sqlite"
 
 
 def test_admin_requires_login_and_renders_dashboard(tmp_path):

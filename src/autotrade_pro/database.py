@@ -1,13 +1,26 @@
-"""SQLite persistence helpers for AutoTrade Pro."""
+"""Persistence helpers for AutoTrade Pro.
+
+SQLite remains the local default. When Railway or another host provides
+``DATABASE_URL``/``AUTOTRADE_DATABASE_URL`` with a Postgres URL, the same helper
+API uses that managed database instead.
+"""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import sqlite3
 from typing import Any, Iterator
+
+try:  # psycopg is only required when DATABASE_URL points at Postgres.
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:  # pragma: no cover - exercised only in Postgres deployments.
+    psycopg = None
+    dict_row = None
 
 
 def utc_now() -> str:
@@ -15,9 +28,19 @@ def utc_now() -> str:
 
 
 @contextmanager
-def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+def connect(db_path: Path) -> Iterator[Any]:
+    database_url = _postgres_database_url()
+    if database_url:
+        if psycopg is None:
+            raise RuntimeError(
+                "Postgres DATABASE_URL is configured, but psycopg is not installed."
+            )
+        raw_conn = psycopg.connect(database_url, row_factory=dict_row)
+        conn = _PostgresConnection(raw_conn)
+    else:
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
     try:
         yield conn
     finally:
@@ -28,15 +51,95 @@ def _json(value: Any) -> str:
     return json.dumps(value, separators=(",", ":"), sort_keys=True)
 
 
-def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+def _row_to_dict(row: Any | None) -> dict[str, Any] | None:
     return dict(row) if row is not None else None
 
 
+def database_backend() -> str:
+    return "postgresql" if _postgres_database_url() else "sqlite"
+
+
+class _PostgresConnection:
+    backend = "postgresql"
+
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    def execute(self, sql: str, params: Any = ()) -> Any:
+        return self._conn.execute(_postgres_sql(sql), params or ())
+
+    def executemany(self, sql: str, params: Any) -> Any:
+        with self._conn.cursor() as cursor:
+            return cursor.executemany(_postgres_sql(sql), params)
+
+    def executescript(self, script: str) -> None:
+        for statement in _split_sql(script):
+            self.execute(statement)
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        self._conn.close()
+
+
+def _postgres_database_url() -> str:
+    database_url = (
+        os.getenv("AUTOTRADE_DATABASE_URL") or os.getenv("DATABASE_URL") or ""
+    ).strip()
+    if database_url.startswith(("postgres://", "postgresql://")):
+        return database_url
+    return ""
+
+
+def _postgres_sql(sql: str) -> str:
+    return sql.replace("?", "%s")
+
+
+def _split_sql(script: str) -> list[str]:
+    return [statement.strip() for statement in script.split(";") if statement.strip()]
+
+
+def _is_postgres_connection(conn: Any) -> bool:
+    return getattr(conn, "backend", "") == "postgresql"
+
+
+def _lock_bootstrap_if_postgres(conn: Any) -> None:
+    if _is_postgres_connection(conn):
+        conn.execute("SELECT pg_advisory_xact_lock(584093911)")
+
+
 def init_db(db_path: Path) -> None:
-    db_path.parent.mkdir(parents=True, exist_ok=True)
     with connect(db_path) as conn:
-        conn.executescript(
-            """
+        postgres = _is_postgres_connection(conn)
+        _lock_bootstrap_if_postgres(conn)
+        conn.executescript(_schema_sql(postgres))
+        _ensure_columns(
+            conn,
+            "dealers",
+            {
+                "openai_api_key": "TEXT NOT NULL DEFAULT ''",
+                "openai_model": "TEXT NOT NULL DEFAULT 'gpt-4.1-mini'",
+                "openai_valuation_enabled": "INTEGER NOT NULL DEFAULT 0",
+                "openai_image_analysis_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "openai_price_adjustment_limit_percent": "REAL NOT NULL DEFAULT 0.06",
+                "openai_pricing_reasoning_preprompt": "TEXT NOT NULL DEFAULT ''",
+                "market_source_manheim_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_jd_power_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_black_book_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_kbb_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_dealer_import_enabled": "INTEGER NOT NULL DEFAULT 1",
+                "market_source_demo_fallback_enabled": "INTEGER NOT NULL DEFAULT 1",
+            },
+        )
+        conn.commit()
+
+
+def _schema_sql(postgres: bool) -> str:
+    schema = """
             PRAGMA foreign_keys = ON;
 
             CREATE TABLE IF NOT EXISTS dealers (
@@ -209,71 +312,33 @@ def init_db(db_path: Path) -> None:
             CREATE INDEX IF NOT EXISTS idx_market_snapshot_lookup
                 ON market_snapshots (region, make, model, year);
             """
-        )
-        _ensure_columns(
-            conn,
-            "dealers",
-            {
-                "openai_api_key": "TEXT NOT NULL DEFAULT ''",
-                "openai_model": "TEXT NOT NULL DEFAULT 'gpt-4.1-mini'",
-                "openai_valuation_enabled": "INTEGER NOT NULL DEFAULT 0",
-                "openai_image_analysis_enabled": "INTEGER NOT NULL DEFAULT 1",
-                "openai_price_adjustment_limit_percent": "REAL NOT NULL DEFAULT 0.06",
-                "openai_pricing_reasoning_preprompt": "TEXT NOT NULL DEFAULT ''",
-                "market_source_manheim_enabled": "INTEGER NOT NULL DEFAULT 1",
-                "market_source_jd_power_enabled": "INTEGER NOT NULL DEFAULT 1",
-                "market_source_black_book_enabled": "INTEGER NOT NULL DEFAULT 1",
-                "market_source_kbb_enabled": "INTEGER NOT NULL DEFAULT 1",
-                "market_source_dealer_import_enabled": "INTEGER NOT NULL DEFAULT 1",
-                "market_source_demo_fallback_enabled": "INTEGER NOT NULL DEFAULT 1",
-            },
-        )
-        conn.commit()
+    if not postgres:
+        return schema
+    return (
+        schema.replace("PRAGMA foreign_keys = ON;", "")
+        .replace("id INTEGER PRIMARY KEY AUTOINCREMENT", "id SERIAL PRIMARY KEY")
+        .replace("REAL NOT NULL", "DOUBLE PRECISION NOT NULL")
+        .replace("REAL", "DOUBLE PRECISION")
+    )
+
+
+def _insert_returning_id(conn: Any, sql: str, params: tuple[Any, ...]) -> int:
+    if _is_postgres_connection(conn):
+        row = conn.execute(f"{sql.rstrip()} RETURNING id", params).fetchone()
+        return int(row["id"])
+    cursor = conn.execute(sql, params)
+    return int(cursor.lastrowid)
 
 
 def seed_demo_data(db_path: Path, default_slug: str = "south-florida-demo") -> None:
     now = utc_now()
     with connect(db_path) as conn:
+        _lock_bootstrap_if_postgres(conn)
         dealer = conn.execute(
             "SELECT id FROM dealers WHERE slug = ?", (default_slug,)
         ).fetchone()
         if dealer is None:
-            cursor = conn.execute(
-                """
-                INSERT INTO dealers (
-                    slug, name, legal_name, logo_url, hero_image_url,
-                    primary_color, accent_color, phone, email, address_line1,
-                    city, state, postal_code, appointment_timezone,
-                    bonus_credit_enabled, bonus_credit_amount, valuation_hold_days,
-                    max_retail_percent, crm_webhook_url, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    default_slug,
-                    "AutoTrade Pro South Florida",
-                    "AutoTrade Pro Demo Dealer Group",
-                    "",
-                    "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1800&q=80",
-                    "#184E77",
-                    "#F9A03F",
-                    "(305) 555-0188",
-                    "trades@exampledealer.com",
-                    "1200 Biscayne Blvd",
-                    "Miami",
-                    "FL",
-                    "33132",
-                    "America/New_York",
-                    1,
-                    500,
-                    10,
-                    0.95,
-                    "",
-                    now,
-                    now,
-                ),
-            )
-            dealer_id = cursor.lastrowid
+            dealer_id = _seed_dealer(conn, default_slug, now)
         else:
             dealer_id = dealer["id"]
 
@@ -382,6 +447,57 @@ def seed_demo_data(db_path: Path, default_slug: str = "south-florida-demo") -> N
         conn.commit()
 
 
+def _seed_dealer(conn: Any, default_slug: str, now: str) -> int:
+    sql = """
+        INSERT INTO dealers (
+            slug, name, legal_name, logo_url, hero_image_url,
+            primary_color, accent_color, phone, email, address_line1,
+            city, state, postal_code, appointment_timezone,
+            bonus_credit_enabled, bonus_credit_amount, valuation_hold_days,
+            max_retail_percent, crm_webhook_url, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    params = (
+        default_slug,
+        "AutoTrade Pro South Florida",
+        "AutoTrade Pro Demo Dealer Group",
+        "",
+        "https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1800&q=80",
+        "#184E77",
+        "#F9A03F",
+        "(305) 555-0188",
+        "trades@exampledealer.com",
+        "1200 Biscayne Blvd",
+        "Miami",
+        "FL",
+        "33132",
+        "America/New_York",
+        1,
+        500,
+        10,
+        0.95,
+        "",
+        now,
+        now,
+    )
+    if _is_postgres_connection(conn):
+        row = conn.execute(
+            f"""
+            {sql}
+            ON CONFLICT (slug) DO UPDATE SET slug = excluded.slug
+            RETURNING id
+            """,
+            params,
+        ).fetchone()
+        return int(row["id"])
+    conn.execute(sql.replace("INSERT INTO", "INSERT OR IGNORE INTO", 1), params)
+    row = conn.execute(
+        "SELECT id FROM dealers WHERE slug = ?", (default_slug,)
+    ).fetchone()
+    return int(row["id"])
+
+
 def fetch_dealer_by_slug(db_path: Path, slug: str) -> dict[str, Any] | None:
     with connect(db_path) as conn:
         row = conn.execute("SELECT * FROM dealers WHERE slug = ?", (slug,)).fetchone()
@@ -451,13 +567,24 @@ def update_dealer(db_path: Path, dealer_id: int, fields: dict[str, Any]) -> None
         conn.commit()
 
 
-def _ensure_columns(
-    conn: sqlite3.Connection, table_name: str, columns: dict[str, str]
-) -> None:
-    existing = {
-        str(row["name"])
-        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-    }
+def _ensure_columns(conn: Any, table_name: str, columns: dict[str, str]) -> None:
+    if _is_postgres_connection(conn):
+        existing = {
+            str(row["name"])
+            for row in conn.execute(
+                """
+                SELECT column_name AS name
+                FROM information_schema.columns
+                WHERE table_schema = current_schema() AND table_name = ?
+                """,
+                (table_name,),
+            ).fetchall()
+        }
+    else:
+        existing = {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+        }
     for column, declaration in columns.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {declaration}")
@@ -609,7 +736,8 @@ def create_valuation(db_path: Path, payload: dict[str, Any]) -> int:
     values[-2] = now
     values[-1] = now
     with connect(db_path) as conn:
-        cursor = conn.execute(
+        valuation_id = _insert_returning_id(
+            conn,
             f"""
             INSERT INTO valuations ({', '.join(fields)})
             VALUES ({', '.join(['?'] * len(fields))})
@@ -623,10 +751,10 @@ def create_valuation(db_path: Path, payload: dict[str, Any]) -> int:
             )
             VALUES (?, 'valuation_created', ?, ?)
             """,
-            (cursor.lastrowid, _json({"public_id": payload["public_id"]}), now),
+            (valuation_id, _json({"public_id": payload["public_id"]}), now),
         )
         conn.commit()
-        return int(cursor.lastrowid)
+        return valuation_id
 
 
 def add_vehicle_photo(db_path: Path, valuation_id: int, photo: dict[str, Any]) -> None:

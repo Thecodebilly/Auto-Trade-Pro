@@ -6,7 +6,7 @@ AutoTrade Pro is a white-label trade-in valuation SaaS prototype for automotive 
 
 - Public dealer app at `/d/<dealer-slug>` with VIN, mileage, condition, photo upload, incentive, valuation, appointment, and confirmation steps.
 - Admin dashboard at `/admin` for leads, dealer branding, incentives, data-source status, CRM events, and CSV export.
-- SQLite schema for dealers, incentives, valuations, photos, customers, appointments, market snapshots, CRM events, and audit events.
+- Database schema for dealers, incentives, valuations, photos, customers, appointments, market snapshots, CRM events, and audit events. SQLite is the local default; Railway/Postgres is used automatically when `DATABASE_URL` or `AUTOTRADE_DATABASE_URL` is set.
 - NHTSA vPIC VIN decoder integration with a safe fallback for manual entry.
 - Market data abstraction for licensed Manheim/J.D. Power/Black Book-style feeds plus dealer CSV imports and seeded demo South Florida snapshots.
 - Valuation engine with condition-first weighting and a hard maximum offer cap at 95% of retail market value by default.
@@ -49,11 +49,12 @@ This repo is ready for Railway GitHub deployments:
 
 Set production secrets in Railway variables, especially:
 
+- `DATABASE_URL` from a Railway Postgres service, or `AUTOTRADE_DATABASE_URL` if you want to override it
 - `AUTOTRADE_SECRET_KEY`
 - `AUTOTRADE_ADMIN_PASSWORD`
 - Optional CRM, SMTP, SMS, and licensed valuation feed variables from `.env.example`
 
-If you attach a Railway volume, set `AUTOTRADE_DATA_DIR=/app/data` so SQLite data and uploads persist across deploys.
+If you attach a Railway volume, set `AUTOTRADE_DATA_DIR=/app/data` so uploads persist across deploys. SQLite remains available for simple deployments, but production Railway apps should attach Postgres so leads and appointments survive restarts and multi-worker deploys.
 
 ## AI Valuation Assist
 
@@ -77,6 +78,8 @@ Common environment variables:
 
 - `AUTOTRADE_DATA_DIR`: runtime data directory, default `data`
 - `AUTOTRADE_DB_FILE`: SQLite file, default `autotrade.db`
+- `DATABASE_URL`: Railway Postgres connection URL, used automatically when present
+- `AUTOTRADE_DATABASE_URL`: explicit Postgres override; takes precedence over `DATABASE_URL`
 - `AUTOTRADE_ADMIN_PASSWORD`: admin dashboard password
 - `AUTOTRADE_DEFAULT_DEALER`: default dealer slug, default `south-florida-demo`
 - `AUTOTRADE_MARKET_REGION`: valuation region, default `south_florida`
@@ -93,7 +96,7 @@ OpenAI settings are managed in the admin UI per dealer so different stores can u
 
 ## Database Bootstrap
 
-The app initializes and migrates its SQLite database on startup, similar to the kiln server bootstrap flow. To run that initialization directly without starting the web server:
+The app initializes and migrates its database on startup, similar to the kiln server bootstrap flow. It uses SQLite when no database URL is configured, and Postgres when `DATABASE_URL` or `AUTOTRADE_DATABASE_URL` is present. To run initialization directly without starting the web server:
 
 ```bash
 python scripts/init_db.py

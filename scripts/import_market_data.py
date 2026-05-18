@@ -15,7 +15,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from autotrade_pro.config import load_config  # noqa: E402
-from autotrade_pro.database import connect, init_db, seed_demo_data  # noqa: E402
+from autotrade_pro.database import connect, database_backend, init_db, seed_demo_data  # noqa: E402
 from autotrade_pro.market_data import import_market_csv  # noqa: E402
 
 
@@ -59,8 +59,10 @@ def main(argv: list[str] | None = None) -> int:
         replace_source=args.replace_source,
     )
     summary = _source_summary(config.database_path)
+    backend = database_backend()
     payload = {
         "status": "ok",
+        "database_backend": backend,
         "database_path": str(config.database_path),
         "csv_path": str(csv_path),
         "imported": imported,
@@ -69,7 +71,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.json:
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
-        print(f"Imported {imported:,} market rows into {config.database_path}")
+        print(f"Imported {imported:,} market rows using {backend}")
+        if backend == "sqlite":
+            print(f"SQLite file: {config.database_path}")
         for row in summary:
             print(
                 f"- {row['source']} / {row['region']}: "
