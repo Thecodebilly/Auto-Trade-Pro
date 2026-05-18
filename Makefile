@@ -3,7 +3,7 @@ VENV ?= .venv
 PIP := $(VENV)/bin/pip
 VENV_PYTHON := $(VENV)/bin/python
 
-.PHONY: setup run test refresh-market zip
+.PHONY: setup run test init-db refresh-market zip
 
 setup:
 	$(PYTHON) -m venv $(VENV)
@@ -14,6 +14,9 @@ run:
 
 test:
 	$(VENV_PYTHON) -m pytest
+
+init-db:
+	$(VENV_PYTHON) scripts/init_db.py
 
 refresh-market:
 	$(VENV_PYTHON) scripts/refresh_market_data.py

@@ -91,6 +91,16 @@ Common environment variables:
 
 OpenAI settings are managed in the admin UI per dealer so different stores can use different keys, models, and adjustment limits.
 
+## Database Bootstrap
+
+The app initializes and migrates its SQLite database on startup, similar to the kiln server bootstrap flow. To run that initialization directly without starting the web server:
+
+```bash
+python scripts/init_db.py
+```
+
+This creates the runtime data directory, applies the current schema, seeds the default demo dealer/incentives/market snapshots, and prints row counts. Use `--refresh-market` to import `AUTOTRADE_MARKET_FEED_CSV` in the same pass, or `--json` for deploy-script friendly output.
+
 ## Dealer Market CSV
 
 The refresh worker accepts CSV columns:
