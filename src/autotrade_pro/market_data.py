@@ -5,13 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import csv
+import json
 from pathlib import Path
 from typing import Any
 
 import requests
 
 from .config import AppConfig
-from .database import fetch_market_snapshots, upsert_market_snapshot
+from .database import connect, fetch_market_snapshots, utc_now
 
 
 @dataclass(slots=True)
@@ -259,39 +260,137 @@ class MarketDataAggregator:
         )
 
 
-def import_market_csv(db_path: Path, csv_path: Path, region: str) -> int:
+def import_market_csv(
+    db_path: Path,
+    csv_path: Path,
+    region: str,
+    *,
+    source_override: str = "",
+    replace_source: bool = False,
+) -> int:
     """Import dealer-owned market snapshots from a CSV file.
 
     Expected columns: year, make, model, trim, source, retail_value,
-    wholesale_value, sample_size, days_supply, confidence.
+    wholesale_value, sample_size, days_supply, confidence. KBB-style aliases
+    such as trade_in_value and typical_listing_value are accepted too.
     """
 
-    count = 0
-    with csv_path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            if not row.get("make") or not row.get("model"):
-                continue
-            upsert_market_snapshot(
-                db_path,
-                {
-                    "year": _int_or_none(row.get("year")),
-                    "make": row["make"],
-                    "model": row["model"],
-                    "trim": row.get("trim", ""),
-                    "region": row.get("region") or region,
-                    "source": row.get("source") or "dealer_csv",
-                    "retail_value": row["retail_value"],
-                    "wholesale_value": row["wholesale_value"],
-                    "sample_size": row.get("sample_size") or 0,
-                    "days_supply": row.get("days_supply") or 0,
-                    "confidence": row.get("confidence") or 0.7,
-                    "captured_at": row.get("captured_at") or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                    "raw": {"csv_file": str(csv_path)},
-                },
-            )
-            count += 1
-    return count
+    imported = 0
+    deleted_source_regions: set[tuple[str, str]] = set()
+    batch: list[tuple[Any, ...]] = []
+    with connect(db_path) as conn:
+        with csv_path.open(newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for line_number, row in enumerate(reader, start=2):
+                record = _market_import_record(
+                    row,
+                    csv_path=csv_path,
+                    line_number=line_number,
+                    default_region=region,
+                    source_override=source_override,
+                )
+                if record is None:
+                    continue
+                source_region = (str(record[6]), str(record[5]))
+                if replace_source and source_region not in deleted_source_regions:
+                    conn.execute(
+                        "DELETE FROM market_snapshots WHERE source = ? AND region = ?",
+                        source_region,
+                    )
+                    deleted_source_regions.add(source_region)
+                batch.append(record)
+                if len(batch) >= 1000:
+                    _insert_market_batch(conn, batch)
+                    imported += len(batch)
+                    batch.clear()
+            if batch:
+                _insert_market_batch(conn, batch)
+                imported += len(batch)
+        conn.commit()
+    return imported
+
+
+def _market_import_record(
+    row: dict[str, Any],
+    *,
+    csv_path: Path,
+    line_number: int,
+    default_region: str,
+    source_override: str,
+) -> tuple[Any, ...] | None:
+    if not row.get("make") or not row.get("model"):
+        return None
+    retail_value = _first_int(
+        row,
+        [
+            "retail_value",
+            "retail",
+            "dealer_retail_value",
+            "typical_listing_value",
+            "typical_listing_price",
+            "fair_market_value",
+            "private_party_value",
+        ],
+    )
+    wholesale_value = _first_int(
+        row,
+        [
+            "wholesale_value",
+            "wholesale",
+            "trade_in_value",
+            "trade_value",
+            "trade",
+            "auction_value",
+            "lending_value",
+        ],
+    )
+    if not retail_value and wholesale_value:
+        retail_value = int(wholesale_value / 0.82)
+    if not wholesale_value and retail_value:
+        wholesale_value = int(retail_value * 0.82)
+    if not retail_value or not wholesale_value:
+        return None
+
+    captured_at = (
+        row.get("captured_at")
+        or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    )
+    return (
+        row.get("vin_pattern", ""),
+        _int_or_none(row.get("year")),
+        row["make"].strip().upper(),
+        row["model"].strip().upper(),
+        row.get("trim", ""),
+        (row.get("region") or default_region).strip(),
+        (source_override or row.get("source") or "dealer_csv").strip(),
+        retail_value,
+        wholesale_value,
+        _int_or_none(row.get("sample_size")) or 0,
+        _int_or_none(row.get("days_supply")) or 0,
+        _float_or_default(row.get("confidence"), 0.7),
+        captured_at,
+        _json(
+            {
+                "csv_file": str(csv_path),
+                "line_number": line_number,
+                "imported_at": utc_now(),
+            }
+        ),
+    )
+
+
+def _insert_market_batch(conn: Any, batch: list[tuple[Any, ...]]) -> None:
+    conn.executemany(
+        """
+        INSERT INTO market_snapshots (
+            vin_pattern, year, make, model, trim, region, source,
+            retail_value, wholesale_value, sample_size, days_supply,
+            confidence, captured_at, raw_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        batch,
+    )
 
 
 def _weighted_average(values: list[tuple[int, float]]) -> int:
@@ -512,14 +611,23 @@ def _int_or_none(value: object) -> int | None:
         return None
 
 
+def _float_or_default(value: object, default: float) -> float:
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def _json(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+
+
 def _safe_json(value: object) -> dict[str, Any]:
     if not value:
         return {}
     if isinstance(value, dict):
         return value
     try:
-        import json
-
         payload = json.loads(str(value))
         return payload if isinstance(payload, dict) else {}
     except Exception:

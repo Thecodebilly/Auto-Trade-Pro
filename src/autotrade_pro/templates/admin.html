@@ -331,6 +331,12 @@
 
           <section class="panel" id="feeds">
             <h2>Data Sources</h2>
+            {% if market_imported %}
+              <div class="source-row" style="border-color:var(--primary); margin-bottom:12px;">
+                <strong>Market import complete</strong>
+                <span>{{ market_imported }} rows imported.</span>
+              </div>
+            {% endif %}
             <div class="source-list">
               {% for source in data_sources %}
                 <div class="source-row">
@@ -341,6 +347,14 @@
                 <div class="source-row"><strong>No snapshots</strong><span>Import a CSV or configure a licensed feed.</span></div>
               {% endfor %}
             </div>
+            <form class="grid-form" method="post" action="/admin/market-import" enctype="multipart/form-data" style="border-top:1px solid var(--line); padding-top:14px; margin-top:14px;">
+              <input type="hidden" name="dealer_slug" value="{{ dealer.slug }}">
+              <label class="full">Market CSV<input name="market_csv" type="file" accept=".csv,text/csv" required></label>
+              <label>Source name<input name="source" placeholder="kelley_blue_book_production"></label>
+              <label>Region<input name="region" value="{{ market_region }}"></label>
+              <label class="full" style="display:flex; align-items:center; gap:9px;"><input name="replace_source" type="checkbox" style="width:auto; min-height:auto;"> Replace existing rows for this source and region</label>
+              <div class="full"><button class="btn secondary" type="submit">Import market CSV</button></div>
+            </form>
             <button class="btn" type="button" style="margin-top:12px;" onclick="refreshMarket()">Refresh feeds</button>
           </section>
 

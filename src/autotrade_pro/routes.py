@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import wraps
 from io import StringIO
 import json
@@ -50,7 +50,7 @@ from .database import (
     update_dealer,
     update_incentive,
 )
-from .market_data import MarketDataAggregator
+from .market_data import MarketDataAggregator, import_market_csv
 from .notifications import send_confirmation
 from .trends import build_trade_value_trend
 from .valuation import build_valuation_record, calculate_valuation
@@ -326,6 +326,8 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             incentives=incentives,
             crm_events=crm_events,
             data_sources=data_sources,
+            market_region=config.market_region,
+            market_imported=request.args.get("market_imported", ""),
         )
 
     @bp.get("/admin/dashboard")
@@ -422,6 +424,36 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     def admin_market_refresh() -> Response:
         result = refresh_market_data_once(config)
         return jsonify(result)
+
+    @bp.post("/admin/market-import")
+    @_require_admin
+    def admin_market_import() -> Response:
+        upload = request.files.get("market_csv")
+        dealer_slug = request.form.get("dealer_slug") or config.default_dealer_slug
+        if upload is None or not upload.filename:
+            return redirect(url_for("autotrade.admin_dashboard", dealer=dealer_slug))
+
+        imports_path = config.data_dir / "imports"
+        imports_path.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+        filename = secure_filename(upload.filename) or "market-import.csv"
+        csv_path = imports_path / f"{timestamp}-{filename}"
+        upload.save(csv_path)
+        imported = import_market_csv(
+            config.database_path,
+            csv_path,
+            request.form.get("region") or config.market_region,
+            source_override=request.form.get("source", "").strip(),
+            replace_source=bool(request.form.get("replace_source")),
+        )
+        return redirect(
+            url_for(
+                "autotrade.admin_dashboard",
+                dealer=dealer_slug,
+                market_imported=imported,
+            )
+            + "#feeds"
+        )
 
     @bp.get("/admin/export.csv")
     @_require_admin

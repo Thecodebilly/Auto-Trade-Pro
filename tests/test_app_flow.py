@@ -190,6 +190,73 @@ def test_admin_visual_dashboard_renders_charts_and_metrics(tmp_path):
     assert b"100% booking rate" in dashboard.data
 
 
+def test_admin_can_bulk_import_market_csv(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+    client.post("/admin/login", data={"password": "test-pass"})
+
+    csv_body = "\n".join(
+        [
+            "year,make,model,trim,region,retail_value,trade_in_value,confidence",
+            "2016,HONDA,CR-V,Base,south_florida,12600,9200,0.93",
+            "2017,TOYOTA,CAMRY,SE,south_florida,13500,9800,0.91",
+        ]
+    )
+    response = client.post(
+        "/admin/market-import",
+        data={
+            "dealer_slug": "south-florida-demo",
+            "source": "kelley_blue_book_production",
+            "region": "south_florida",
+            "replace_source": "on",
+            "market_csv": (BytesIO(csv_body.encode("utf-8")), "kbb.csv"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert b"Market import complete" in response.data
+    assert b"2 rows imported" in response.data
+    assert b"kelley_blue_book_production" in response.data
+
+    valuation_response = client.post(
+        "/api/dealers/south-florida-demo/valuations",
+        data={
+            "vin": "",
+            "mileage": "150000",
+            "vehicle_json": json.dumps(
+                {
+                    "vin": "",
+                    "year": 2016,
+                    "make": "HONDA",
+                    "model": "CR-V",
+                    "trim": "Base",
+                    "body_style": "SUV",
+                }
+            ),
+            "condition_json": json.dumps(
+                {
+                    "dents": "none",
+                    "interior": "clean",
+                    "warning_lights": "none",
+                    "tires": "0_6",
+                    "brakes": "0_6",
+                    "oil_change": "0_3",
+                }
+            ),
+            "photo_labels_json": json.dumps(["front", "rear", "interior", "dash", "tires"]),
+        },
+    )
+
+    assert valuation_response.status_code == 200
+    valuation = valuation_response.get_json()["valuation"]
+    signal = valuation["source_breakdown"]["signals"][0]
+    assert signal["source"] == "kelley_blue_book_production"
+    assert signal["retail_value"] == 12600
+    assert signal["wholesale_value"] == 9200
+
+
 def test_public_vehicle_screen_has_dropdown_selectors(tmp_path):
     app = _app(tmp_path)
     client = app.test_client()

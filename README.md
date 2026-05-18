@@ -108,15 +108,24 @@ This creates the runtime data directory, applies the current schema, seeds the d
 
 ## Dealer Market CSV
 
-The refresh worker accepts CSV columns:
+The built-in seed data is intentionally tiny demo data. For production, import a licensed KBB/auction/retail market export with thousands or millions of rows. The importer accepts these CSV columns:
 
 ```text
 year,make,model,trim,region,source,retail_value,wholesale_value,sample_size,days_supply,confidence,captured_at
 ```
 
-Run a one-shot import:
+Kelley Blue Book-style aliases are accepted too, including `trade_in_value`, `trade_value`, `typical_listing_value`, `typical_listing_price`, `fair_market_value`, and `private_party_value`.
+
+Import from the admin Data Sources panel, or run a bulk import from the shell:
 
 ```bash
+python scripts/import_market_data.py /path/to/kbb-export.csv --source kelley_blue_book_production --replace-source
+```
+
+For Railway, place the CSV on a mounted volume or provide it during a deploy task, then run the same script with `AUTOTRADE_DATA_DIR=/app/data`. The older env-driven worker path still works for scheduled imports:
+
+```bash
+export AUTOTRADE_MARKET_FEED_CSV=/app/data/market-feed.csv
 python scripts/refresh_market_data.py
 ```
 
