@@ -44,6 +44,7 @@
       box-shadow: 0 10px 18px rgba(24, 78, 119, .22);
     }
     .secondary { color: var(--primary); background: #e7eef3; }
+    button:disabled { cursor: progress; opacity: .76; transform: none; }
     .ghost { color: var(--ink); background: transparent; border: 1px solid var(--line); }
     .icon-only { width: 44px; padding: 0; }
     .shell {
@@ -402,6 +403,10 @@
       border-top-color: #fff;
       animation: spin .7s linear infinite;
     }
+    .secondary .spinner {
+      border-color: rgba(24, 78, 119, .22);
+      border-top-color: var(--primary);
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 980px) {
       .workspace { grid-template-columns: 1fr; padding-top: 10px; }
@@ -679,6 +684,12 @@
       vehicle: {},
       vehicleOptions: { years: [], makes: [], body_styles: [] },
       valuation: null,
+      valuationKey: "",
+      valuationPromise: null,
+      pricingReasoning: null,
+      pricingReasoningError: "",
+      pricingReasoningPromise: null,
+      pricingReasoningPublicId: "",
       appointment: null
     };
     const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -1182,6 +1193,7 @@
     function go(index) {
       state.step = index;
       update();
+      maybeAutoGenerateValuation();
     }
 
     function update() {
@@ -1277,22 +1289,88 @@
       return ({ sparkle: "sparkles", wrench: "wrench", clock: "clock", calendar: "calendar-plus", gift: "gift" })[name] || "gift";
     }
 
-    async function calculateOffer() {
+    function maybeAutoGenerateValuation() {
+      if (steps[state.step] !== "valuation" || state.valuationPromise) return;
+      if (!isValuationInputComplete()) {
+        setStatus("valuationStatus", "Vehicle and mileage are needed before generating an offer.", true);
+        return;
+      }
+      const key = valuationInputKey();
+      if (state.valuation && state.valuationKey === key) {
+        renderValuationOffer();
+        if (!state.pricingReasoning && !state.pricingReasoningPromise && !state.pricingReasoningError) {
+          ensurePricingReasoningGenerated({ updateStatus: true });
+        }
+        return;
+      }
+      calculateOffer({ automatic: true, key });
+    }
+
+    function isValuationInputComplete() {
+      syncVehicleInputs();
+      const vin = document.getElementById("vin").value.trim();
+      const mileage = Number(document.getElementById("mileage").value);
+      return Boolean(mileage > 0 && ((vin && vin.length === 17) || (state.vehicle.year && state.vehicle.make && state.vehicle.model)));
+    }
+
+    function valuationInputKey() {
+      syncVehicleInputs();
+      const photos = [...document.querySelectorAll("[data-photo]")]
+        .map(input => {
+          const file = input.files && input.files[0];
+          return file ? [input.dataset.photo, file.name, file.size, file.lastModified] : null;
+        })
+        .filter(Boolean);
+      return JSON.stringify({
+        vehicle: state.vehicle,
+        mileage: document.getElementById("mileage").value.trim(),
+        condition: readCondition(),
+        photos
+      });
+    }
+
+    async function calculateOffer(options = {}) {
+      if (state.valuationPromise) return state.valuationPromise;
       const button = document.getElementById("calculateBtn");
       const status = document.getElementById("valuationStatus");
+      const key = options.key || valuationInputKey();
       button.disabled = true;
-      button.innerHTML = `<span class="spinner"></span> Calculating`;
+      button.innerHTML = `<span class="spinner"></span> ${options.automatic ? "Generating Offer" : "Calculating"}`;
       status.className = "status-line";
-      status.textContent = "Aggregating market signals and condition scoring...";
-      try {
-        await submitValuation();
+      status.textContent = options.automatic
+        ? "Generating offer automatically..."
+        : "Aggregating market signals and condition scoring...";
+      state.valuation = null;
+      document.getElementById("offerBand").hidden = true;
+      document.getElementById("trendBtn").hidden = true;
+      document.getElementById("toAppointmentBtn").hidden = true;
+      state.pricingReasoning = null;
+      state.pricingReasoningError = "";
+      state.pricingReasoningPublicId = "";
+      setReasoningButtonState("hidden");
+      state.valuationPromise = (async () => {
+        const valuation = await submitValuation();
+        if (key !== valuationInputKey()) {
+          status.className = "status-line";
+          status.textContent = "Vehicle details changed. Continue to generate a fresh offer.";
+          return null;
+        }
+        state.valuation = valuation;
+        state.valuationKey = key;
         renderValuationOffer();
         status.className = "status-line success";
-        status.textContent = "Offer ready. Book in-app to secure priority scheduling.";
+        status.textContent = "Offer ready. Generating reason automatically...";
+        ensurePricingReasoningGenerated({ updateStatus: true });
+        return valuation;
+      })();
+      try {
+        return await state.valuationPromise;
       } catch (error) {
         status.className = "status-line error";
         status.textContent = error.message;
+        return null;
       } finally {
+        state.valuationPromise = null;
         button.disabled = false;
         button.innerHTML = `<i data-lucide="calculator"></i> Recalculate`;
         update();
@@ -1321,8 +1399,7 @@
       const response = await fetch(`/api/dealers/${window.AUTOTRADE.dealer.slug}/valuations`, { method: "POST", body: buildValuationFormData() });
       const payload = await response.json();
       if (!response.ok || !payload.ok) throw new Error(payload.error || "Valuation failed.");
-      state.valuation = payload.valuation;
-      return state.valuation;
+      return payload.valuation;
     }
 
     function renderValuationOffer() {
@@ -1335,7 +1412,9 @@
         <span>Valid through ${formatDate(state.valuation.offer_expires_at)}</span>
       `;
       document.getElementById("trendBtn").hidden = false;
-      document.getElementById("reasoningBtn").hidden = false;
+      if (state.pricingReasoningPromise) setReasoningButtonState("generating");
+      else if (state.pricingReasoning && state.pricingReasoningPublicId === state.valuation.public_id) setReasoningButtonState("ready");
+      else setReasoningButtonState("idle");
       document.getElementById("toAppointmentBtn").hidden = false;
     }
 
@@ -1343,17 +1422,17 @@
       if (!state.valuation) return setStatus("valuationStatus", "Calculate an offer first.", true);
       const modal = document.getElementById("reasoningModal");
       modal.hidden = false;
-      document.getElementById("reasoningContent").innerHTML = `<div class="metric"><span>Loading</span><strong>AI reasoning</strong></div>`;
       document.getElementById("reasoningSubtitle").textContent = vehicleName(state.vehicle) || "AI-generated estimate explanation";
-      if (window.lucide) window.lucide.createIcons();
-      try {
-        const response = await fetch(`/api/valuations/${encodeURIComponent(state.valuation.public_id)}/pricing-reasoning`, { method: "POST" });
-        const payload = await response.json();
-        if (!response.ok || !payload.ok) throw new Error(payload.error || "Pricing reasoning unavailable.");
-        renderPricingReasoning(payload.reasoning || {});
-      } catch (error) {
-        document.getElementById("reasoningContent").innerHTML = `<div class="status-line error">${escapeHtml(error.message)}</div>`;
+      if (state.pricingReasoning && state.pricingReasoningPublicId === state.valuation.public_id) {
+        renderPricingReasoning(state.pricingReasoning);
+        if (window.lucide) window.lucide.createIcons();
+        return;
       }
+      renderPricingReasoningLoading();
+      if (window.lucide) window.lucide.createIcons();
+      const reasoning = await ensurePricingReasoningGenerated();
+      if (reasoning) renderPricingReasoning(reasoning);
+      else if (state.pricingReasoningError) renderPricingReasoningError(state.pricingReasoningError);
     }
 
     function closePricingReasoning() {
@@ -1376,6 +1455,93 @@
         <p class="trend-note">${escapeHtml(reasoning.confidence_note || "")}</p>
         <p class="trend-note">${escapeHtml(reasoning.disclaimer || "")}</p>
       `;
+    }
+
+    function renderPricingReasoningLoading() {
+      document.getElementById("reasoningContent").innerHTML = `<div class="metric"><span>Generating</span><strong>Pricing reason</strong></div>`;
+    }
+
+    function renderPricingReasoningError(message) {
+      document.getElementById("reasoningContent").innerHTML = `<div class="status-line error">${escapeHtml(message)}</div>`;
+    }
+
+    async function ensurePricingReasoningGenerated(options = {}) {
+      if (!state.valuation) return null;
+      const publicId = state.valuation.public_id;
+      if (state.pricingReasoning && state.pricingReasoningPublicId === publicId) {
+        setReasoningButtonState("ready");
+        return state.pricingReasoning;
+      }
+      if (state.pricingReasoningPromise && state.pricingReasoningPublicId === publicId) {
+        return state.pricingReasoningPromise;
+      }
+
+      state.pricingReasoningPublicId = publicId;
+      state.pricingReasoningError = "";
+      setReasoningButtonState("generating");
+      if (options.updateStatus) {
+        const status = document.getElementById("valuationStatus");
+        status.className = "status-line";
+        status.textContent = "Offer ready. Generating reason automatically...";
+      }
+
+      state.pricingReasoningPromise = (async () => {
+        try {
+          const response = await fetch(`/api/valuations/${encodeURIComponent(publicId)}/pricing-reasoning`, { method: "POST" });
+          const payload = await response.json();
+          if (!response.ok || !payload.ok) throw new Error(payload.error || "Pricing reasoning unavailable.");
+          if (!state.valuation || state.valuation.public_id !== publicId) return null;
+          state.pricingReasoning = payload.reasoning || {};
+          state.pricingReasoningError = "";
+          if (!document.getElementById("reasoningModal").hidden) renderPricingReasoning(state.pricingReasoning);
+          if (options.updateStatus) {
+            const status = document.getElementById("valuationStatus");
+            status.className = "status-line success";
+            status.textContent = "Offer and reason ready. Book in-app to secure priority scheduling.";
+          }
+          return state.pricingReasoning;
+        } catch (error) {
+          if (state.valuation && state.valuation.public_id === publicId) {
+            state.pricingReasoningError = error.message;
+            if (!document.getElementById("reasoningModal").hidden) renderPricingReasoningError(error.message);
+            if (options.updateStatus) {
+              const status = document.getElementById("valuationStatus");
+              status.className = "status-line error";
+              status.textContent = `Offer ready, but reason generation failed: ${error.message}`;
+            }
+          }
+          return null;
+        } finally {
+          if (state.valuation && state.valuation.public_id === publicId) {
+            setReasoningButtonState(state.pricingReasoning ? "ready" : "idle");
+          }
+          if (state.pricingReasoningPublicId === publicId) state.pricingReasoningPromise = null;
+          if (window.lucide) window.lucide.createIcons();
+        }
+      })();
+      return state.pricingReasoningPromise;
+    }
+
+    function setReasoningButtonState(status) {
+      const button = document.getElementById("reasoningBtn");
+      if (status === "hidden") {
+        button.hidden = true;
+        button.disabled = false;
+        button.innerHTML = `<i data-lucide="sparkles"></i> Reasoning`;
+        return;
+      }
+      button.hidden = false;
+      if (status === "generating") {
+        button.disabled = true;
+        button.innerHTML = `<span class="spinner"></span> Generating Reason`;
+      } else if (status === "ready") {
+        button.disabled = false;
+        button.innerHTML = `<i data-lucide="sparkles"></i> Reason Ready`;
+      } else {
+        button.disabled = false;
+        button.innerHTML = `<i data-lucide="sparkles"></i> Reasoning`;
+      }
+      if (window.lucide) window.lucide.createIcons();
     }
 
     async function openTrend() {

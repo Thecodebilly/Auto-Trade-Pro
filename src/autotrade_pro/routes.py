@@ -311,6 +311,16 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         if request.method == "POST":
             password = request.form.get("password", "")
             if secrets.compare_digest(password, config.admin_password):
+                openai_api_key = request.form.get("openai_api_key", "").strip()
+                if openai_api_key:
+                    dealer = fetch_dealer_by_slug(config.database_path, config.default_dealer_slug)
+                    dealer = dealer or fetch_first_dealer(config.database_path)
+                    if dealer is not None:
+                        update_dealer(
+                            config.database_path,
+                            dealer["id"],
+                            {"openai_api_key": openai_api_key},
+                        )
                 session["admin"] = True
                 return redirect(url_for("autotrade.admin_dashboard"))
             error = "That password did not match."

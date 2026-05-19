@@ -46,6 +46,8 @@
       font-weight: 800;
       cursor: pointer;
     }
+    .field { margin-top: 14px; }
+    .help { margin: 7px 0 0; font-size: 12px; line-height: 1.4; color: #607080; }
     .error { margin-top: 14px; color: #9d2b2b; font-weight: 750; }
   </style>
 </head>
@@ -55,6 +57,11 @@
     <p>Dealer admin dashboard</p>
     <label for="password">Admin password</label>
     <input id="password" name="password" type="password" autocomplete="current-password" autofocus>
+    <div class="field">
+      <label for="openai_api_key">OpenAI API key optional</label>
+      <input id="openai_api_key" name="openai_api_key" type="password" autocomplete="off" placeholder="sk-...">
+      <p class="help">Saved to the default dealer after a successful login. Leave blank to keep the current key.</p>
+    </div>
     <button type="submit">Sign in</button>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
   </form>

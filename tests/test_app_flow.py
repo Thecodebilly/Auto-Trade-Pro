@@ -195,6 +195,38 @@ def test_admin_requires_login_and_renders_dashboard(tmp_path):
     assert b"/admin/dashboard" in login.data
 
 
+def test_admin_login_can_store_openai_token_in_db(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+
+    response = client.post(
+        "/admin/login",
+        data={"password": "test-pass", "openai_api_key": "sk-login-token"},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    updated = fetch_dealer_by_slug(tmp_path / "autotrade.db", dealer["slug"])
+    assert updated["openai_api_key"] == "sk-login-token"
+    assert b"sk-login-token" not in response.data
+
+
+def test_admin_login_does_not_store_openai_token_with_bad_password(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+
+    response = client.post(
+        "/admin/login",
+        data={"password": "wrong-pass", "openai_api_key": "sk-should-not-save"},
+    )
+
+    assert response.status_code == 200
+    updated = fetch_dealer_by_slug(tmp_path / "autotrade.db", dealer["slug"])
+    assert updated["openai_api_key"] == ""
+
+
 def test_data_source_status_rounds_confidence_in_python(tmp_path):
     _app(tmp_path)
 
@@ -491,6 +523,9 @@ def test_public_vehicle_screen_has_dropdown_selectors(tmp_path):
     assert b'data-search-select="make"' in response.data
     assert b'id="reasoningBtn"' in response.data
     assert b'id="reasoningModal"' in response.data
+    assert b"maybeAutoGenerateValuation" in response.data
+    assert b"Generating Offer" in response.data
+    assert b"Generating Reason" in response.data
     assert b"Refreshing offer record before booking" in response.data
     assert b"isMissingValuationError" in response.data
 
