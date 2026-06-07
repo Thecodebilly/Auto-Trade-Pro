@@ -130,7 +130,10 @@ def scrape_inventory(
                 vehicles.append(v)
 
         # Detect next-page URL (only for HTML-based scraping)
-        if page_source in ("html_patterns", "json_ld", "embedded_json") and BS4_AVAILABLE:
+        if (
+            page_source in ("html_patterns", "json_ld", "embedded_json")
+            and BS4_AVAILABLE
+        ):
             current_url = _find_next_page(html, final_url)
         else:
             current_url = None
@@ -159,6 +162,7 @@ def scrape_inventory(
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
+
 def _fetch_page(url: str) -> tuple[str, str, str]:
     """Return (html, final_url, error).  error is '' on success."""
     headers = {
@@ -168,8 +172,11 @@ def _fetch_page(url: str) -> tuple[str, str, str]:
     }
     try:
         resp = requests.get(
-            url, headers=headers, timeout=SCRAPE_TIMEOUT,
-            allow_redirects=True, stream=False,
+            url,
+            headers=headers,
+            timeout=SCRAPE_TIMEOUT,
+            allow_redirects=True,
+            stream=False,
         )
         resp.raise_for_status()
         # Detect encoding
@@ -187,14 +194,14 @@ def _looks_like_json_feed(html: str) -> bool:
 def _looks_like_xml_feed(html: str) -> bool:
     stripped = html.lstrip()
     return stripped.startswith("<?xml") or (
-        "<inventory" in stripped[:200].lower()
-        or "<vehicles" in stripped[:200].lower()
+        "<inventory" in stripped[:200].lower() or "<vehicles" in stripped[:200].lower()
     )
 
 
 # ---------------------------------------------------------------------------
 # Strategy: direct JSON feed
 # ---------------------------------------------------------------------------
+
 
 def _extract_json_feed(html: str, base_url: str) -> list[dict[str, Any]]:
     try:
@@ -206,7 +213,9 @@ def _extract_json_feed(html: str, base_url: str) -> list[dict[str, Any]]:
     return vehicles
 
 
-def _walk_json_for_vehicles(data: Any, base_url: str, depth: int = 0) -> list[dict[str, Any]]:
+def _walk_json_for_vehicles(
+    data: Any, base_url: str, depth: int = 0
+) -> list[dict[str, Any]]:
     if depth > 6:
         return []
     vehicles: list[dict[str, Any]] = []
@@ -222,9 +231,23 @@ def _walk_json_for_vehicles(data: Any, base_url: str, depth: int = 0) -> list[di
         if _looks_like_vehicle(data):
             return [_map_generic_json_vehicle(data, base_url)]
         # Look for known container keys
-        for key in ("vehicles", "inventory", "listings", "results", "data", "items",
-                    "Vehicles", "Inventory", "Results", "Data", "vehicle_list",
-                    "vehicleList", "VehicleList", "cars", "Cars"):
+        for key in (
+            "vehicles",
+            "inventory",
+            "listings",
+            "results",
+            "data",
+            "items",
+            "Vehicles",
+            "Inventory",
+            "Results",
+            "Data",
+            "vehicle_list",
+            "vehicleList",
+            "VehicleList",
+            "cars",
+            "Cars",
+        ):
             if key in data and isinstance(data[key], (list, dict)):
                 found = _walk_json_for_vehicles(data[key], base_url, depth + 1)
                 if found:
@@ -242,6 +265,7 @@ def _walk_json_for_vehicles(data: Any, base_url: str, depth: int = 0) -> list[di
 # Strategy: XML feed
 # ---------------------------------------------------------------------------
 
+
 def _extract_xml_feed(html: str, base_url: str) -> list[dict[str, Any]]:
     # Simple regex-based XML extraction to avoid lxml dependency
     vehicles: list[dict[str, Any]] = []
@@ -256,26 +280,48 @@ def _extract_xml_feed(html: str, base_url: str) -> list[dict[str, Any]]:
     for block in vehicle_blocks[:300]:
         v: dict[str, Any] = {}
         for tag, field in [
-            ("vin", "vin"), ("VIN", "vin"),
-            ("year", "year"), ("Year", "year"), ("modelYear", "year"),
-            ("make", "make"), ("Make", "make"),
-            ("model", "model"), ("Model", "model"),
-            ("trim", "trim"), ("Trim", "trim"),
-            ("price", "price"), ("Price", "price"), ("askingPrice", "price"),
-            ("mileage", "mileage"), ("Mileage", "mileage"), ("odometer", "mileage"),
-            ("stockNumber", "stock_number"), ("StockNumber", "stock_number"), ("stock", "stock_number"),
-            ("exteriorColor", "ext_color"), ("ExteriorColor", "ext_color"), ("color", "ext_color"),
-            ("bodyStyle", "body_style"), ("BodyStyle", "body_style"), ("style", "body_style"),
+            ("vin", "vin"),
+            ("VIN", "vin"),
+            ("year", "year"),
+            ("Year", "year"),
+            ("modelYear", "year"),
+            ("make", "make"),
+            ("Make", "make"),
+            ("model", "model"),
+            ("Model", "model"),
+            ("trim", "trim"),
+            ("Trim", "trim"),
+            ("price", "price"),
+            ("Price", "price"),
+            ("askingPrice", "price"),
+            ("mileage", "mileage"),
+            ("Mileage", "mileage"),
+            ("odometer", "mileage"),
+            ("stockNumber", "stock_number"),
+            ("StockNumber", "stock_number"),
+            ("stock", "stock_number"),
+            ("exteriorColor", "ext_color"),
+            ("ExteriorColor", "ext_color"),
+            ("color", "ext_color"),
+            ("bodyStyle", "body_style"),
+            ("BodyStyle", "body_style"),
+            ("style", "body_style"),
             ("transmission", "transmission"),
             ("engine", "engine"),
-            ("description", "description"), ("Description", "description"),
+            ("description", "description"),
+            ("Description", "description"),
         ]:
-            match = re.search(rf"<{tag}[^>]*>(.*?)</{tag}>", block, re.DOTALL | re.IGNORECASE)
+            match = re.search(
+                rf"<{tag}[^>]*>(.*?)</{tag}>", block, re.DOTALL | re.IGNORECASE
+            )
             if match:
                 v[field] = match.group(1).strip()
 
         # Images
-        images = re.findall(r'<(?:image|Image|photo|Photo|img)[^>]*>\s*(https?://[^\s<]+)\s*</(?:image|Image|photo|Photo|img)>', block)
+        images = re.findall(
+            r"<(?:image|Image|photo|Photo|img)[^>]*>\s*(https?://[^\s<]+)\s*</(?:image|Image|photo|Photo|img)>",
+            block,
+        )
         if images:
             v["images"] = images
 
@@ -288,6 +334,7 @@ def _extract_xml_feed(html: str, base_url: str) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Strategy 1: JSON-LD
 # ---------------------------------------------------------------------------
+
 
 def _extract_json_ld(html: str) -> list[dict[str, Any]]:
     if not BS4_AVAILABLE:
@@ -350,8 +397,14 @@ def _map_schema_org(data: Any) -> dict[str, Any] | None:
         v.update(parsed)
 
     v["vin"] = str(data.get("vehicleIdentificationNumber", "") or "")
-    v["year"] = v.get("year") or _int_or_none(data.get("modelDate") or data.get("vehicleModelDate"))
-    v["make"] = str(data.get("brand", {}).get("name", "") if isinstance(data.get("brand"), dict) else data.get("brand", "")) or v.get("make", "")
+    v["year"] = v.get("year") or _int_or_none(
+        data.get("modelDate") or data.get("vehicleModelDate")
+    )
+    v["make"] = str(
+        data.get("brand", {}).get("name", "")
+        if isinstance(data.get("brand"), dict)
+        else data.get("brand", "")
+    ) or v.get("make", "")
     v["model"] = str(data.get("model", "") or "") or v.get("model", "")
     v["body_style"] = str(data.get("bodyType", "") or "")
     v["mileage"] = _int_or_none(
@@ -362,7 +415,14 @@ def _map_schema_org(data: Any) -> dict[str, Any] | None:
     v["ext_color"] = str(data.get("color", "") or "")
     v["transmission"] = str(data.get("vehicleTransmission", "") or "")
     v["drivetrain"] = str(data.get("driveWheelConfiguration", "") or "")
-    v["engine"] = str(data.get("vehicleEngine", {}).get("name", "") if isinstance(data.get("vehicleEngine"), dict) else "") or ""
+    v["engine"] = (
+        str(
+            data.get("vehicleEngine", {}).get("name", "")
+            if isinstance(data.get("vehicleEngine"), dict)
+            else ""
+        )
+        or ""
+    )
     v["description"] = str(data.get("description", "") or "")
 
     # Price from offers
@@ -404,10 +464,18 @@ _WINDOW_PATTERNS = [
     re.compile(r"window\.pageData\s*=\s*(\{.*?\});", re.DOTALL),
     re.compile(r"window\.DDC\.dataLayer\s*=\s*(\{.*?\});", re.DOTALL),
     re.compile(r"window\.spaCache\s*=\s*(\{.*?\});", re.DOTALL),
-    re.compile(r'"vehicles"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL),
-    re.compile(r'"inventory"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL),
-    re.compile(r'"listings"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL),
-    re.compile(r'"results"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL),
+    re.compile(
+        r'"vehicles"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL
+    ),
+    re.compile(
+        r'"inventory"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL
+    ),
+    re.compile(
+        r'"listings"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL
+    ),
+    re.compile(
+        r'"results"\s*:\s*(\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\[\]]*\])*\])*\])', re.DOTALL
+    ),
 ]
 
 
@@ -465,24 +533,43 @@ def _best_effort_json(raw: str) -> str:
 
 # CSS class fragments that commonly identify vehicle listing cards
 _CARD_CLASSES = [
-    "vehicle-card", "vehicle_card", "vehicleCard",
-    "inventory-card", "inventory_card", "inventoryCard",
-    "inventory-item", "inventory_item", "inventoryItem",
-    "car-card", "car_card", "carCard",
-    "result-item", "result_item", "resultItem",
-    "listing-item", "listing_item", "listingItem",
-    "search-result", "searchResult",
-    "srp-listing", "srpListing",
-    "vehicle-tile", "vehicleTile",
-    "car-listing", "carListing",
-    "used-car-tile", "used_car_tile",
+    "vehicle-card",
+    "vehicle_card",
+    "vehicleCard",
+    "inventory-card",
+    "inventory_card",
+    "inventoryCard",
+    "inventory-item",
+    "inventory_item",
+    "inventoryItem",
+    "car-card",
+    "car_card",
+    "carCard",
+    "result-item",
+    "result_item",
+    "resultItem",
+    "listing-item",
+    "listing_item",
+    "listingItem",
+    "search-result",
+    "searchResult",
+    "srp-listing",
+    "srpListing",
+    "vehicle-tile",
+    "vehicleTile",
+    "car-listing",
+    "carListing",
+    "used-car-tile",
+    "used_car_tile",
 ]
 
 _PRICE_RE = re.compile(r"\$\s*([\d,]+)")
 _MILEAGE_RE = re.compile(r"([\d,]+)\s*(?:mi|miles|kilometer|km)", re.IGNORECASE)
 _VIN_RE = re.compile(r"\b([A-HJ-NPR-Z0-9]{17})\b")
 _YEAR_RE = re.compile(r"\b(19[6-9]\d|20[0-4]\d)\b")
-_TITLE_RE = re.compile(r"\b(20\d\d|19\d\d)\s+([A-Z][a-zA-Z\-]+)\s+([A-Z][a-zA-Z0-9\-/ ]+)")
+_TITLE_RE = re.compile(
+    r"\b(20\d\d|19\d\d)\s+([A-Z][a-zA-Z\-]+)\s+([A-Z][a-zA-Z0-9\-/ ]+)"
+)
 
 
 def _extract_html_patterns(html: str, base_url: str) -> list[dict[str, Any]]:
@@ -528,18 +615,16 @@ def _parse_card(card: Any, base_url: str) -> dict[str, Any] | None:
     v: dict[str, Any] = {}
 
     # VIN from data attributes first
-    v["vin"] = (
-        card.get("data-vin", "")
-        or card.get("data-vehicle-vin", "")
-        or ""
-    )
+    v["vin"] = card.get("data-vin", "") or card.get("data-vehicle-vin", "") or ""
     if not v["vin"]:
         vin_match = _VIN_RE.search(text)
         if vin_match:
             v["vin"] = vin_match.group(1)
 
     # Stock number
-    v["stock_number"] = str(card.get("data-stock-number", "") or card.get("data-stocknumber", "") or "")
+    v["stock_number"] = str(
+        card.get("data-stock-number", "") or card.get("data-stocknumber", "") or ""
+    )
 
     # External ID
     v["external_id"] = str(
@@ -558,7 +643,11 @@ def _parse_card(card: Any, base_url: str) -> dict[str, Any] | None:
             break
     if not title:
         # Look for a title class
-        title_el = card.find(class_=re.compile(r"title|name|heading|vehicle-name|car-name", re.IGNORECASE))
+        title_el = card.find(
+            class_=re.compile(
+                r"title|name|heading|vehicle-name|car-name", re.IGNORECASE
+            )
+        )
         if title_el:
             title = title_el.get_text(" ", strip=True)
 
@@ -587,12 +676,16 @@ def _parse_card(card: Any, base_url: str) -> dict[str, Any] | None:
         v["mileage"] = _parse_int(mileage_match.group(1))
 
     # Color
-    color_el = card.find(class_=re.compile(r"ext.?color|exterior.?color|color", re.IGNORECASE))
+    color_el = card.find(
+        class_=re.compile(r"ext.?color|exterior.?color|color", re.IGNORECASE)
+    )
     if color_el:
         v["ext_color"] = color_el.get_text(" ", strip=True)[:40]
 
     # Body style
-    body_el = card.find(class_=re.compile(r"body.?style|body.?type|category", re.IGNORECASE))
+    body_el = card.find(
+        class_=re.compile(r"body.?style|body.?type|category", re.IGNORECASE)
+    )
     if body_el:
         v["body_style"] = body_el.get_text(" ", strip=True)[:40]
 
@@ -678,7 +771,9 @@ def _try_api_endpoints(base_url: str) -> tuple[list[dict[str, Any]], str]:
         url = origin + path
         try:
             resp = requests.get(url, headers=headers, timeout=10)
-            if resp.status_code == 200 and "json" in (resp.headers.get("content-type", "")):
+            if resp.status_code == 200 and "json" in (
+                resp.headers.get("content-type", "")
+            ):
                 try:
                     data = resp.json()
                     found = _walk_json_for_vehicles(data, base_url)
@@ -784,9 +879,7 @@ def _ai_extract(
         resp.raise_for_status()
         data = resp.json()
         output_text = (
-            data.get("output", [{}])[0]
-            .get("content", [{}])[0]
-            .get("text", "{}")
+            data.get("output", [{}])[0].get("content", [{}])[0].get("text", "{}")
         )
         result = json.loads(output_text)
         raw_vehicles = result.get("vehicles", [])
@@ -821,6 +914,7 @@ def _ai_extract(
 # Pagination detection
 # ---------------------------------------------------------------------------
 
+
 def _find_next_page(html: str, current_url: str) -> str | None:
     if not BS4_AVAILABLE:
         return None
@@ -837,7 +931,11 @@ def _find_next_page(html: str, current_url: str) -> str | None:
         aria = str(anchor.get("aria-label", "")).lower()
         cls = " ".join(anchor.get("class", [])).lower()
         rel = str(anchor.get("rel", "")).lower()
-        if any(keyword in val for val in (text, aria, cls, rel) for keyword in ("next", "›", "»", "next page")):
+        if any(
+            keyword in val
+            for val in (text, aria, cls, rel)
+            for keyword in ("next", "›", "»", "next page")
+        ):
             href = anchor["href"]
             if href and href not in ("#", "javascript:void(0)", "javascript:;"):
                 return urllib.parse.urljoin(current_url, href)
@@ -916,7 +1014,11 @@ def _map_generic_json_vehicle(data: dict[str, Any], base_url: str) -> dict[str, 
         if mapped:
             if mapped == "images":
                 if isinstance(val, list):
-                    v["images"] = [str(i) for i in val if isinstance(i, str) and i.startswith("http")][:8]
+                    v["images"] = [
+                        str(i)
+                        for i in val
+                        if isinstance(i, str) and i.startswith("http")
+                    ][:8]
                 elif isinstance(val, str) and val.startswith("http"):
                     v["images"] = [val]
             elif mapped in ("year", "price", "mileage"):
@@ -931,7 +1033,9 @@ def _map_generic_json_vehicle(data: dict[str, Any], base_url: str) -> dict[str, 
     # Check for title field
     for title_key in ("title", "name", "vehiclename", "vehicle_name", "listingtitle"):
         if title_key in {k.lower() for k in data}:
-            raw_title = next(v_raw for k, v_raw in data.items() if k.lower() == title_key)
+            raw_title = next(
+                v_raw for k, v_raw in data.items() if k.lower() == title_key
+            )
             parsed = _parse_vehicle_title(str(raw_title or ""))
             for field in ("year", "make", "model", "trim"):
                 if not v.get(field) and parsed.get(field):
@@ -945,6 +1049,7 @@ def _map_generic_json_vehicle(data: dict[str, Any], base_url: str) -> dict[str, 
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _looks_like_vehicle(v: dict[str, Any]) -> bool:
     """Return True if *v* has enough fields to be considered a real vehicle."""
     has_year = bool(v.get("year"))
@@ -953,7 +1058,13 @@ def _looks_like_vehicle(v: dict[str, Any]) -> bool:
     has_vin = bool(str(v.get("vin", "") or "").strip())
     has_price = v.get("price") is not None
     has_stock = bool(v.get("stock_number"))
-    return (has_year and has_make and has_model) or (has_vin and (has_year or has_make)) or (has_make and has_model and has_price) or (has_vin and has_price) or (has_stock and (has_make or has_year))
+    return (
+        (has_year and has_make and has_model)
+        or (has_vin and (has_year or has_make))
+        or (has_make and has_model and has_price)
+        or (has_vin and has_price)
+        or (has_stock and (has_make or has_year))
+    )
 
 
 def _vehicle_key(v: dict[str, Any]) -> str:

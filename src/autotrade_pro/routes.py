@@ -103,11 +103,18 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @bp.get("/api/dealers/<dealer_slug>/config")
     def dealer_config(dealer_slug: str) -> Response:
         dealer = _dealer_or_404(config, dealer_slug)
-        return jsonify({"dealer": _dealer_public_payload(dealer), "incentives": list_incentives(config.database_path, dealer["id"])})
+        return jsonify(
+            {
+                "dealer": _dealer_public_payload(dealer),
+                "incentives": list_incentives(config.database_path, dealer["id"]),
+            }
+        )
 
     @bp.get("/api/vehicle-options")
     def vehicle_options() -> Response:
-        client = VehicleOptionsClient(config.nhtsa_api_base, config.nhtsa_timeout_seconds)
+        client = VehicleOptionsClient(
+            config.nhtsa_api_base, config.nhtsa_timeout_seconds
+        )
         makes, source = client.makes()
         return jsonify(
             {
@@ -123,7 +130,9 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     def vehicle_models() -> Response:
         make = request.args.get("make", "")
         year = _int_or_none(request.args.get("year"))
-        client = VehicleOptionsClient(config.nhtsa_api_base, config.nhtsa_timeout_seconds)
+        client = VehicleOptionsClient(
+            config.nhtsa_api_base, config.nhtsa_timeout_seconds
+        )
         models, source = client.models(make, year)
         return jsonify({"ok": True, "source": source, "models": models})
 
@@ -131,7 +140,9 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     def vehicle_trims() -> Response:
         make = request.args.get("make", "")
         model = request.args.get("model", "")
-        client = VehicleOptionsClient(config.nhtsa_api_base, config.nhtsa_timeout_seconds)
+        client = VehicleOptionsClient(
+            config.nhtsa_api_base, config.nhtsa_timeout_seconds
+        )
         return jsonify({"ok": True, "trims": client.trims(make, model)})
 
     @bp.post("/api/dealers/<dealer_slug>/decode-vin")
@@ -140,7 +151,9 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         payload = request.get_json(silent=True) or {}
         vin = payload.get("vin") or request.form.get("vin") or ""
         try:
-            decoder = NhtsaVinDecoder(config.nhtsa_api_base, config.nhtsa_timeout_seconds)
+            decoder = NhtsaVinDecoder(
+                config.nhtsa_api_base, config.nhtsa_timeout_seconds
+            )
             decoded = decoder.decode(vin)
         except VinDecodeError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
@@ -169,7 +182,15 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             return jsonify({"ok": False, "error": str(exc)}), 400
 
         if not vin and not _has_manual_vehicle(vehicle):
-            return jsonify({"ok": False, "error": "Enter a valid VIN or select year, make, and model."}), 400
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "Enter a valid VIN or select year, make, and model.",
+                    }
+                ),
+                400,
+            )
 
         if vin:
             vehicle["vin"] = vin
@@ -182,8 +203,16 @@ def create_blueprint(config: AppConfig) -> Blueprint:
 
         if vin and (not vehicle.get("make") or not vehicle.get("model")):
             try:
-                decoded = NhtsaVinDecoder(config.nhtsa_api_base, config.nhtsa_timeout_seconds).decode(vin)
-                vehicle.update({key: value for key, value in decoded.to_dict().items() if value and key != "raw"})
+                decoded = NhtsaVinDecoder(
+                    config.nhtsa_api_base, config.nhtsa_timeout_seconds
+                ).decode(vin)
+                vehicle.update(
+                    {
+                        key: value
+                        for key, value in decoded.to_dict().items()
+                        if value and key != "raw"
+                    }
+                )
             except Exception:
                 pass
 
@@ -220,7 +249,14 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             result=result,
         )
         valuation_id = create_valuation(config.database_path, record)
-        _save_photos(config.uploads_path, config.database_path, result.public_id, valuation_id, files, sanitized_labels)
+        _save_photos(
+            config.uploads_path,
+            config.database_path,
+            result.public_id,
+            valuation_id,
+            files,
+            sanitized_labels,
+        )
         emit_crm_event(
             config.database_path,
             config,
@@ -268,7 +304,12 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             valuation=_valuation_payload(valuation),
         )
         if reasoning.get("error"):
-            return jsonify({"ok": False, "error": reasoning["error"], "reasoning": reasoning}), 400
+            return (
+                jsonify(
+                    {"ok": False, "error": reasoning["error"], "reasoning": reasoning}
+                ),
+                400,
+            )
         return jsonify({"ok": True, "reasoning": reasoning})
 
     @bp.post("/api/valuations/<public_id>/appointments")
@@ -289,8 +330,24 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             "notes": str(payload.get("notes", "")).strip(),
             "confirmation_code": f"AT-{secrets.token_hex(3).upper()}",
         }
-        if not all([customer["name"], customer["email"], customer["phone"], appointment["scheduled_date"], appointment["scheduled_time"]]):
-            return jsonify({"ok": False, "error": "Contact details and appointment time are required."}), 400
+        if not all(
+            [
+                customer["name"],
+                customer["email"],
+                customer["phone"],
+                appointment["scheduled_date"],
+                appointment["scheduled_time"],
+            ]
+        ):
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "Contact details and appointment time are required.",
+                    }
+                ),
+                400,
+            )
         create_customer_and_appointment(
             config.database_path,
             valuation_id=valuation["id"],
@@ -306,7 +363,11 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             dealer,
             valuation["id"],
             "appointment.booked",
-            {"valuation": _valuation_payload(updated), "customer": customer, "appointment": appointment},
+            {
+                "valuation": _valuation_payload(updated),
+                "customer": customer,
+                "appointment": appointment,
+            },
         )
         notification_notes = send_confirmation(config, updated)
         return jsonify(
@@ -325,7 +386,9 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             if secrets.compare_digest(password, config.admin_password):
                 openai_api_key = request.form.get("openai_api_key", "").strip()
                 if openai_api_key:
-                    dealer = fetch_dealer_by_slug(config.database_path, config.default_dealer_slug)
+                    dealer = fetch_dealer_by_slug(
+                        config.database_path, config.default_dealer_slug
+                    )
                     dealer = dealer or fetch_first_dealer(config.database_path)
                     if dealer is not None:
                         update_dealer(
@@ -347,13 +410,19 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @_require_admin
     def admin_dashboard() -> str:
         dealers = list_dealers(config.database_path)
-        selected_slug = request.args.get("dealer") or (dealers[0]["slug"] if dealers else "")
-        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (dealers[0] if dealers else None)
+        selected_slug = request.args.get("dealer") or (
+            dealers[0]["slug"] if dealers else ""
+        )
+        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (
+            dealers[0] if dealers else None
+        )
         if dealer is None:
             abort(500)
         stats = fetch_dashboard_stats(config.database_path, dealer["id"])
         leads = list_dealer_leads(config.database_path, dealer["id"])
-        incentives = list_incentives(config.database_path, dealer["id"], active_only=False)
+        incentives = list_incentives(
+            config.database_path, dealer["id"], active_only=False
+        )
         crm_events = list_crm_events(config.database_path, dealer["id"])
         data_sources = list_data_source_status(config.database_path)
         return render_template(
@@ -373,8 +442,12 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @_require_admin
     def admin_visual_dashboard() -> str:
         dealers = list_dealers(config.database_path)
-        selected_slug = request.args.get("dealer") or (dealers[0]["slug"] if dealers else "")
-        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (dealers[0] if dealers else None)
+        selected_slug = request.args.get("dealer") or (
+            dealers[0]["slug"] if dealers else ""
+        )
+        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (
+            dealers[0] if dealers else None
+        )
         if dealer is None:
             abort(500)
         insights = fetch_admin_dashboard_metrics(config.database_path, dealer["id"])
@@ -405,39 +478,47 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             "city": request.form.get("city", ""),
             "state": request.form.get("state", ""),
             "postal_code": request.form.get("postal_code", ""),
-            "appointment_timezone": request.form.get("appointment_timezone", "America/New_York"),
-            "bonus_credit_enabled": 1 if request.form.get("bonus_credit_enabled") else 0,
+            "appointment_timezone": request.form.get(
+                "appointment_timezone", "America/New_York"
+            ),
+            "bonus_credit_enabled": (
+                1 if request.form.get("bonus_credit_enabled") else 0
+            ),
             "bonus_credit_amount": int(request.form.get("bonus_credit_amount") or 0),
             "valuation_hold_days": int(request.form.get("valuation_hold_days") or 10),
             "max_retail_percent": float(request.form.get("max_retail_percent") or 0.95),
             "crm_webhook_url": request.form.get("crm_webhook_url", ""),
             "openai_model": request.form.get("openai_model", "gpt-4.1-mini"),
-            "openai_valuation_enabled": 1 if request.form.get("openai_valuation_enabled") else 0,
-            "openai_image_analysis_enabled": 1 if request.form.get("openai_image_analysis_enabled") else 0,
+            "openai_valuation_enabled": (
+                1 if request.form.get("openai_valuation_enabled") else 0
+            ),
+            "openai_image_analysis_enabled": (
+                1 if request.form.get("openai_image_analysis_enabled") else 0
+            ),
             "openai_price_adjustment_limit_percent": _float_or_default(
                 request.form.get("openai_price_adjustment_limit_percent"), 0.06
             ),
             "openai_pricing_reasoning_preprompt": request.form.get(
                 "openai_pricing_reasoning_preprompt", ""
             ),
-            "market_source_manheim_enabled": 1
-            if request.form.get("market_source_manheim_enabled")
-            else 0,
-            "market_source_jd_power_enabled": 1
-            if request.form.get("market_source_jd_power_enabled")
-            else 0,
-            "market_source_black_book_enabled": 1
-            if request.form.get("market_source_black_book_enabled")
-            else 0,
-            "market_source_kbb_enabled": 1
-            if request.form.get("market_source_kbb_enabled")
-            else 0,
-            "market_source_dealer_import_enabled": 1
-            if request.form.get("market_source_dealer_import_enabled")
-            else 0,
-            "market_source_demo_fallback_enabled": 1
-            if request.form.get("market_source_demo_fallback_enabled")
-            else 0,
+            "market_source_manheim_enabled": (
+                1 if request.form.get("market_source_manheim_enabled") else 0
+            ),
+            "market_source_jd_power_enabled": (
+                1 if request.form.get("market_source_jd_power_enabled") else 0
+            ),
+            "market_source_black_book_enabled": (
+                1 if request.form.get("market_source_black_book_enabled") else 0
+            ),
+            "market_source_kbb_enabled": (
+                1 if request.form.get("market_source_kbb_enabled") else 0
+            ),
+            "market_source_dealer_import_enabled": (
+                1 if request.form.get("market_source_dealer_import_enabled") else 0
+            ),
+            "market_source_demo_fallback_enabled": (
+                1 if request.form.get("market_source_demo_fallback_enabled") else 0
+            ),
         }
         if request.form.get("clear_openai_api_key"):
             fields["openai_api_key"] = ""
@@ -505,7 +586,9 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             abort(404)
         rows = list_dealer_leads(config.database_path, dealer["id"], limit=5000)
         handle = StringIO()
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()) if rows else ["public_id"])
+        writer = csv.DictWriter(
+            handle, fieldnames=list(rows[0].keys()) if rows else ["public_id"]
+        )
         writer.writeheader()
         writer.writerows(rows)
         return Response(
@@ -528,10 +611,24 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         limit = min(int(request.args.get("limit", 48)), 200)
         offset = int(request.args.get("offset", 0))
         vehicles = list_inventory_vehicles(
-            config.database_path, dealer["id"], status="active", limit=limit, offset=offset
+            config.database_path,
+            dealer["id"],
+            status="active",
+            limit=limit,
+            offset=offset,
         )
-        total = count_inventory_vehicles(config.database_path, dealer["id"], status="active")
-        return jsonify({"ok": True, "vehicles": vehicles, "total": total, "limit": limit, "offset": offset})
+        total = count_inventory_vehicles(
+            config.database_path, dealer["id"], status="active"
+        )
+        return jsonify(
+            {
+                "ok": True,
+                "vehicles": vehicles,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
 
     # ------------------------------------------------------------------
     # Admin inventory routes
@@ -541,16 +638,24 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @_require_admin
     def admin_inventory() -> str:
         dealers = list_dealers(config.database_path)
-        selected_slug = request.args.get("dealer") or (dealers[0]["slug"] if dealers else "")
-        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (dealers[0] if dealers else None)
+        selected_slug = request.args.get("dealer") or (
+            dealers[0]["slug"] if dealers else ""
+        )
+        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (
+            dealers[0] if dealers else None
+        )
         if dealer is None:
             abort(500)
         sources = list_inventory_sources(config.database_path, dealer["id"])
         vehicles = list_inventory_vehicles(
             config.database_path, dealer["id"], status="all", limit=300
         )
-        total = count_inventory_vehicles(config.database_path, dealer["id"], status="all")
-        active = count_inventory_vehicles(config.database_path, dealer["id"], status="active")
+        total = count_inventory_vehicles(
+            config.database_path, dealer["id"], status="all"
+        )
+        active = count_inventory_vehicles(
+            config.database_path, dealer["id"], status="active"
+        )
         return render_template(
             "admin_inventory.html",
             dealers=dealers,
@@ -591,9 +696,13 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         source = get_inventory_source(config.database_path, source_id)
         if source is None:
             return redirect(url_for("autotrade.admin_inventory", dealer=dealer_slug))
-        dealer = fetch_dealer_by_slug(config.database_path, dealer_slug) or fetch_first_dealer(config.database_path)
+        dealer = fetch_dealer_by_slug(
+            config.database_path, dealer_slug
+        ) or fetch_first_dealer(config.database_path)
         openai_key = dealer.get("openai_api_key", "") if dealer else ""
-        openai_model = dealer.get("openai_model", "gpt-4.1-mini") if dealer else "gpt-4.1-mini"
+        openai_model = (
+            dealer.get("openai_model", "gpt-4.1-mini") if dealer else "gpt-4.1-mini"
+        )
         try:
             result = scrape_inventory(
                 source["url"],
@@ -617,11 +726,17 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 status="ok",
                 error="; ".join(errors) if errors else "",
             )
-            sync_msg = f"Synced {count} vehicles (strategy: {result.get('source', '?')})"
+            sync_msg = (
+                f"Synced {count} vehicles (strategy: {result.get('source', '?')})"
+            )
             if errors:
                 sync_msg += f" — warnings: {'; '.join(errors[:2])}"
             return redirect(
-                url_for("autotrade.admin_inventory", dealer=dealer_slug, sync_result=sync_msg)
+                url_for(
+                    "autotrade.admin_inventory",
+                    dealer=dealer_slug,
+                    sync_result=sync_msg,
+                )
             )
         except Exception as exc:
             update_inventory_source_sync_result(
@@ -632,7 +747,11 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 error=str(exc)[:500],
             )
             return redirect(
-                url_for("autotrade.admin_inventory", dealer=dealer_slug, sync_error=str(exc)[:200])
+                url_for(
+                    "autotrade.admin_inventory",
+                    dealer=dealer_slug,
+                    sync_error=str(exc)[:200],
+                )
             )
 
     @bp.post("/admin/inventory/sources/<int:source_id>/scrape-preview")
@@ -643,9 +762,13 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         if source is None:
             return jsonify({"ok": False, "error": "Source not found"}), 404
         dealer_slug = request.form.get("dealer_slug", config.default_dealer_slug)
-        dealer = fetch_dealer_by_slug(config.database_path, dealer_slug) or fetch_first_dealer(config.database_path)
+        dealer = fetch_dealer_by_slug(
+            config.database_path, dealer_slug
+        ) or fetch_first_dealer(config.database_path)
         openai_key = dealer.get("openai_api_key", "") if dealer else ""
-        openai_model = dealer.get("openai_model", "gpt-4.1-mini") if dealer else "gpt-4.1-mini"
+        openai_model = (
+            dealer.get("openai_model", "gpt-4.1-mini") if dealer else "gpt-4.1-mini"
+        )
         result = scrape_inventory(
             source["url"],
             openai_api_key=openai_key,
@@ -817,11 +940,15 @@ def _labels_for_files(labels: Any, file_count: int) -> list[str]:
         labels = []
     normalized = [str(label).strip().lower() for label in labels if str(label).strip()]
     while len(normalized) < file_count:
-        normalized.append(fallback[len(normalized)] if len(normalized) < len(fallback) else "other")
+        normalized.append(
+            fallback[len(normalized)] if len(normalized) < len(fallback) else "other"
+        )
     return normalized[:file_count]
 
 
-def _build_photo_summary(files: list[FileStorage], labels: list[str]) -> list[dict[str, Any]]:
+def _build_photo_summary(
+    files: list[FileStorage], labels: list[str]
+) -> list[dict[str, Any]]:
     summary = []
     for index, file in enumerate(files):
         if not file or not file.filename:

@@ -145,7 +145,9 @@ def _connect_postgres(database_url: str) -> Any:
             if attempt >= attempts - 1:
                 break
             time.sleep(delay)
-    raise RuntimeError("Could not connect to the configured Postgres database.") from last_error
+    raise RuntimeError(
+        "Could not connect to the configured Postgres database."
+    ) from last_error
 
 
 def _database_url_required() -> bool:
@@ -524,22 +526,198 @@ def seed_demo_data(db_path: Path, default_slug: str = "south-florida-demo") -> N
         ).fetchone()["count"]
         if market_count == 0:
             rows = [
-                (2023, "TOYOTA", "CAMRY", "SE", "manheim_mmr_demo", 27700, 22200, 214, 42, 0.86),
-                (2023, "TOYOTA", "CAMRY", "SE", "kelley_blue_book_demo", 28100, 22600, 0, 0, 0.84),
-                (2022, "TOYOTA", "RAV4", "XLE", "manheim_mmr_demo", 30400, 24500, 189, 38, 0.84),
-                (2022, "TOYOTA", "RAV4", "XLE", "kelley_blue_book_demo", 31100, 24900, 0, 0, 0.83),
-                (2021, "HONDA", "ACCORD", "EX-L", "regional_auction_demo", 25200, 20100, 96, 51, 0.78),
-                (2021, "HONDA", "ACCORD", "EX-L", "kelley_blue_book_demo", 25900, 20700, 0, 0, 0.82),
-                (2022, "HONDA", "CR-V", "EX", "manheim_mmr_demo", 29600, 23800, 166, 44, 0.82),
-                (2022, "HONDA", "CR-V", "EX", "kelley_blue_book_demo", 30200, 24200, 0, 0, 0.82),
-                (2021, "FORD", "F-150", "XLT", "regional_auction_demo", 37200, 30900, 144, 48, 0.81),
-                (2021, "FORD", "F-150", "XLT", "kelley_blue_book_demo", 38400, 31800, 0, 0, 0.83),
-                (2023, "CHEVROLET", "SILVERADO", "LT", "manheim_mmr_demo", 41400, 34600, 112, 53, 0.79),
-                (2023, "CHEVROLET", "SILVERADO", "LT", "kelley_blue_book_demo", 42100, 35100, 0, 0, 0.82),
-                (2020, "BMW", "3 SERIES", "330I", "retail_comparable_demo", 28600, 22200, 88, 59, 0.74),
-                (2021, "MERCEDES-BENZ", "C-CLASS", "C300", "retail_comparable_demo", 31800, 24900, 72, 61, 0.73),
-                (2022, "NISSAN", "ALTIMA", "SV", "regional_auction_demo", 22300, 17600, 139, 57, 0.77),
-                (2021, "HYUNDAI", "SONATA", "SEL", "regional_auction_demo", 21400, 16800, 121, 49, 0.76),
+                (
+                    2023,
+                    "TOYOTA",
+                    "CAMRY",
+                    "SE",
+                    "manheim_mmr_demo",
+                    27700,
+                    22200,
+                    214,
+                    42,
+                    0.86,
+                ),
+                (
+                    2023,
+                    "TOYOTA",
+                    "CAMRY",
+                    "SE",
+                    "kelley_blue_book_demo",
+                    28100,
+                    22600,
+                    0,
+                    0,
+                    0.84,
+                ),
+                (
+                    2022,
+                    "TOYOTA",
+                    "RAV4",
+                    "XLE",
+                    "manheim_mmr_demo",
+                    30400,
+                    24500,
+                    189,
+                    38,
+                    0.84,
+                ),
+                (
+                    2022,
+                    "TOYOTA",
+                    "RAV4",
+                    "XLE",
+                    "kelley_blue_book_demo",
+                    31100,
+                    24900,
+                    0,
+                    0,
+                    0.83,
+                ),
+                (
+                    2021,
+                    "HONDA",
+                    "ACCORD",
+                    "EX-L",
+                    "regional_auction_demo",
+                    25200,
+                    20100,
+                    96,
+                    51,
+                    0.78,
+                ),
+                (
+                    2021,
+                    "HONDA",
+                    "ACCORD",
+                    "EX-L",
+                    "kelley_blue_book_demo",
+                    25900,
+                    20700,
+                    0,
+                    0,
+                    0.82,
+                ),
+                (
+                    2022,
+                    "HONDA",
+                    "CR-V",
+                    "EX",
+                    "manheim_mmr_demo",
+                    29600,
+                    23800,
+                    166,
+                    44,
+                    0.82,
+                ),
+                (
+                    2022,
+                    "HONDA",
+                    "CR-V",
+                    "EX",
+                    "kelley_blue_book_demo",
+                    30200,
+                    24200,
+                    0,
+                    0,
+                    0.82,
+                ),
+                (
+                    2021,
+                    "FORD",
+                    "F-150",
+                    "XLT",
+                    "regional_auction_demo",
+                    37200,
+                    30900,
+                    144,
+                    48,
+                    0.81,
+                ),
+                (
+                    2021,
+                    "FORD",
+                    "F-150",
+                    "XLT",
+                    "kelley_blue_book_demo",
+                    38400,
+                    31800,
+                    0,
+                    0,
+                    0.83,
+                ),
+                (
+                    2023,
+                    "CHEVROLET",
+                    "SILVERADO",
+                    "LT",
+                    "manheim_mmr_demo",
+                    41400,
+                    34600,
+                    112,
+                    53,
+                    0.79,
+                ),
+                (
+                    2023,
+                    "CHEVROLET",
+                    "SILVERADO",
+                    "LT",
+                    "kelley_blue_book_demo",
+                    42100,
+                    35100,
+                    0,
+                    0,
+                    0.82,
+                ),
+                (
+                    2020,
+                    "BMW",
+                    "3 SERIES",
+                    "330I",
+                    "retail_comparable_demo",
+                    28600,
+                    22200,
+                    88,
+                    59,
+                    0.74,
+                ),
+                (
+                    2021,
+                    "MERCEDES-BENZ",
+                    "C-CLASS",
+                    "C300",
+                    "retail_comparable_demo",
+                    31800,
+                    24900,
+                    72,
+                    61,
+                    0.73,
+                ),
+                (
+                    2022,
+                    "NISSAN",
+                    "ALTIMA",
+                    "SV",
+                    "regional_auction_demo",
+                    22300,
+                    17600,
+                    139,
+                    57,
+                    0.77,
+                ),
+                (
+                    2021,
+                    "HYUNDAI",
+                    "SONATA",
+                    "SEL",
+                    "regional_auction_demo",
+                    21400,
+                    16800,
+                    121,
+                    49,
+                    0.76,
+                ),
             ]
             conn.executemany(
                 """
@@ -714,7 +892,9 @@ def _ensure_columns(conn: Any, table_name: str, columns: dict[str, str]) -> None
             conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column} {declaration}")
 
 
-def list_incentives(db_path: Path, dealer_id: int, active_only: bool = True) -> list[dict[str, Any]]:
+def list_incentives(
+    db_path: Path, dealer_id: int, active_only: bool = True
+) -> list[dict[str, Any]]:
     clause = "AND active = 1" if active_only else ""
     with connect(db_path) as conn:
         rows = conn.execute(
@@ -904,7 +1084,9 @@ def add_vehicle_photo(db_path: Path, valuation_id: int, photo: dict[str, Any]) -
         conn.commit()
 
 
-def fetch_valuation_by_public_id(db_path: Path, public_id: str) -> dict[str, Any] | None:
+def fetch_valuation_by_public_id(
+    db_path: Path, public_id: str
+) -> dict[str, Any] | None:
     with connect(db_path) as conn:
         row = conn.execute(
             """
@@ -1010,7 +1192,9 @@ def create_customer_and_appointment(
         conn.commit()
 
 
-def list_dealer_leads(db_path: Path, dealer_id: int, limit: int = 100) -> list[dict[str, Any]]:
+def list_dealer_leads(
+    db_path: Path, dealer_id: int, limit: int = 100
+) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -1144,7 +1328,9 @@ def fetch_admin_dashboard_metrics(db_path: Path, dealer_id: int) -> dict[str, An
             }
         )
 
-    high_quality = sum(1 for row in rows if float(row["data_quality_score"] or 0) >= 0.8)
+    high_quality = sum(
+        1 for row in rows if float(row["data_quality_score"] or 0) >= 0.8
+    )
     funnel = [
         {"label": "Valuations", "value": total},
         {"label": "Ready offers", "value": sum(1 for row in rows if row["status"])},
@@ -1219,7 +1405,9 @@ def add_crm_event(
         conn.commit()
 
 
-def list_crm_events(db_path: Path, dealer_id: int, limit: int = 20) -> list[dict[str, Any]]:
+def list_crm_events(
+    db_path: Path, dealer_id: int, limit: int = 20
+) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
         rows = conn.execute(
             """
@@ -1235,16 +1423,14 @@ def list_crm_events(db_path: Path, dealer_id: int, limit: int = 20) -> list[dict
 
 def list_data_source_status(db_path: Path) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
-        rows = conn.execute(
-            """
+        rows = conn.execute("""
             SELECT source, region, COUNT(*) AS rows_count,
                    MAX(captured_at) AS latest_capture,
                    AVG(confidence) AS average_confidence
             FROM market_snapshots
             GROUP BY source, region
             ORDER BY latest_capture DESC
-            """
-        ).fetchall()
+            """).fetchall()
         statuses = []
         for row in rows:
             status = dict(row)
@@ -1272,13 +1458,8 @@ def _short_day_label(day: date) -> str:
     return f"{day.strftime('%b')} {day.day}"
 
 
-def _with_percentages(
-    rows: list[dict[str, Any]], total: int
-) -> list[dict[str, Any]]:
-    return [
-        {**row, "percent": _percentage(int(row["value"]), total)}
-        for row in rows
-    ]
+def _with_percentages(rows: list[dict[str, Any]], total: int) -> list[dict[str, Any]]:
+    return [{**row, "percent": _percentage(int(row["value"]), total)} for row in rows]
 
 
 def _count_dimension(
@@ -1319,9 +1500,7 @@ def _range_counts(
     rows = []
     for label, lower, upper in ranges:
         count = sum(
-            1
-            for value in values
-            if value >= lower and (upper is None or value < upper)
+            1 for value in values if value >= lower and (upper is None or value < upper)
         )
         rows.append({"label": label, "value": count})
     return _with_percentages(rows, max(total, 1))
@@ -1330,6 +1509,7 @@ def _range_counts(
 # ---------------------------------------------------------------------------
 # Inventory sources
 # ---------------------------------------------------------------------------
+
 
 def list_inventory_sources(db_path: Path, dealer_id: int) -> list[dict[str, Any]]:
     with connect(db_path) as conn:
@@ -1407,9 +1587,22 @@ def update_inventory_source_sync_result(
 # ---------------------------------------------------------------------------
 
 _INVENTORY_UPSERT_FIELDS = [
-    "year", "make", "model", "trim", "body_style", "price", "mileage",
-    "ext_color", "int_color", "transmission", "drivetrain", "engine",
-    "description", "images_json", "detail_url", "scraped_at",
+    "year",
+    "make",
+    "model",
+    "trim",
+    "body_style",
+    "price",
+    "mileage",
+    "ext_color",
+    "int_color",
+    "transmission",
+    "drivetrain",
+    "engine",
+    "description",
+    "images_json",
+    "detail_url",
+    "scraped_at",
 ]
 
 
@@ -1457,7 +1650,9 @@ def upsert_inventory_vehicles(
                     ).fetchone()
                 )
 
-            images_json = _json(v.get("images", []) if isinstance(v.get("images"), list) else [])
+            images_json = _json(
+                v.get("images", []) if isinstance(v.get("images"), list) else []
+            )
 
             if existing is None:
                 _insert_returning_id(
@@ -1473,16 +1668,29 @@ def upsert_inventory_vehicles(
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', '', 0, ?, ?, ?)
                     """,
                     (
-                        dealer_id, source_id,
-                        ext_id, vin, stock,
-                        v.get("year"), v.get("make", ""), v.get("model", ""),
-                        v.get("trim", ""), v.get("body_style", ""),
-                        v.get("price"), v.get("mileage"),
-                        v.get("ext_color", ""), v.get("int_color", ""),
-                        v.get("transmission", ""), v.get("drivetrain", ""),
-                        v.get("engine", ""), v.get("description", ""),
-                        images_json, v.get("detail_url", ""),
-                        scraped_at, now, now,
+                        dealer_id,
+                        source_id,
+                        ext_id,
+                        vin,
+                        stock,
+                        v.get("year"),
+                        v.get("make", ""),
+                        v.get("model", ""),
+                        v.get("trim", ""),
+                        v.get("body_style", ""),
+                        v.get("price"),
+                        v.get("mileage"),
+                        v.get("ext_color", ""),
+                        v.get("int_color", ""),
+                        v.get("transmission", ""),
+                        v.get("drivetrain", ""),
+                        v.get("engine", ""),
+                        v.get("description", ""),
+                        images_json,
+                        v.get("detail_url", ""),
+                        scraped_at,
+                        now,
+                        now,
                     ),
                 )
                 upserted += 1
@@ -1498,14 +1706,24 @@ def upsert_inventory_vehicles(
                     WHERE id = ?
                     """,
                     (
-                        v.get("year"), v.get("make", ""), v.get("model", ""),
-                        v.get("trim", ""), v.get("body_style", ""),
-                        v.get("price"), v.get("mileage"),
-                        v.get("ext_color", ""), v.get("int_color", ""),
-                        v.get("transmission", ""), v.get("drivetrain", ""),
-                        v.get("engine", ""), v.get("description", ""),
-                        images_json, v.get("detail_url", ""),
-                        scraped_at, now, existing["id"],
+                        v.get("year"),
+                        v.get("make", ""),
+                        v.get("model", ""),
+                        v.get("trim", ""),
+                        v.get("body_style", ""),
+                        v.get("price"),
+                        v.get("mileage"),
+                        v.get("ext_color", ""),
+                        v.get("int_color", ""),
+                        v.get("transmission", ""),
+                        v.get("drivetrain", ""),
+                        v.get("engine", ""),
+                        v.get("description", ""),
+                        images_json,
+                        v.get("detail_url", ""),
+                        scraped_at,
+                        now,
+                        existing["id"],
                     ),
                 )
                 upserted += 1
@@ -1579,9 +1797,23 @@ def update_inventory_vehicle(
     fields: dict[str, Any],
 ) -> None:
     allowed = {
-        "year", "make", "model", "trim", "body_style", "price", "mileage",
-        "ext_color", "int_color", "transmission", "drivetrain", "engine",
-        "description", "detail_url", "status", "notes", "images_json",
+        "year",
+        "make",
+        "model",
+        "trim",
+        "body_style",
+        "price",
+        "mileage",
+        "ext_color",
+        "int_color",
+        "transmission",
+        "drivetrain",
+        "engine",
+        "description",
+        "detail_url",
+        "status",
+        "notes",
+        "images_json",
     }
     sanitized = {k: v for k, v in fields.items() if k in allowed}
     if not sanitized:
@@ -1604,7 +1836,9 @@ def delete_inventory_vehicle(db_path: Path, vehicle_id: int) -> None:
         conn.commit()
 
 
-def count_inventory_vehicles(db_path: Path, dealer_id: int, status: str = "active") -> int:
+def count_inventory_vehicles(
+    db_path: Path, dealer_id: int, status: str = "active"
+) -> int:
     with connect(db_path) as conn:
         if status == "all":
             row = conn.execute(
