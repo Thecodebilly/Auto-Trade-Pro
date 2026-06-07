@@ -1,11 +1,15 @@
 """Vehicle inventory web scraper for AutoTrade Pro.
 
 Multi-strategy extraction pipeline:
+  0. Typesense / InstantSearch adapter detection (used by many Toyota, Honda,
+     Nissan and other OEM dealer sites powered by Dealer.com / DealerSocket /
+     CDK Roadster variants that embed TypesenseInstantSearchAdapter)
   1. JSON-LD structured data (Schema.org Car / Vehicle / ItemList)
   2. Embedded JSON in <script> tags (React/Vue/SPA window state patterns)
   3. XML / JSON feed detection (direct inventory feed URLs)
   4. Common automotive HTML card patterns (CDK, DealerSocket, Dealer.com, etc.)
-  5. AI fallback — uses dealer's OpenAI key to parse arbitrary HTML
+  5. Common REST/API endpoint discovery
+  6. AI fallback — uses dealer's OpenAI key to parse arbitrary HTML
 
 Returns a normalised list of vehicle dicts suitable for the inventory table.
 """
@@ -64,16 +68,44 @@ def scrape_inventory(
     errors: list[str] = []
     source = "none"
 
+    # -- Strategy 0: Typesense InstantSearch (many OEM dealer sites) --------
+    # Detect on first page fetch, then bypass HTML pagination entirely.
+    html0, final_url0, err0 = _fetch_page(url)
+    if err0:
+        errors.append(err0)
+    else:
+        ts_result = _try_typesense(html0, url, max_vehicles)
+        if ts_result is not None:
+            ts_vehicles, ts_err = ts_result
+            if ts_err:
+                errors.append(ts_err)
+            if ts_vehicles:
+                vehicles = [_normalise(v) for v in ts_vehicles[:max_vehicles]]
+                return {
+                    "vehicles": vehicles,
+                    "total": len(vehicles),
+                    "source": "typesense",
+                    "scraped_url": url,
+                    "errors": errors,
+                }
+
     # -- Try each page (pagination) -----------------------------------------
     seen_keys: set[str] = set()
     pages_tried = 0
 
+    # Reuse the first page we already fetched
+    _prefetched: tuple[str, str] | None = (html0, final_url0) if not err0 else None
+
     current_url: str | None = url
     while current_url and pages_tried < MAX_PAGES and len(vehicles) < max_vehicles:
-        html, final_url, err = _fetch_page(current_url)
-        if err:
-            errors.append(err)
-            break
+        if _prefetched is not None:
+            html, final_url = _prefetched
+            _prefetched = None
+        else:
+            html, final_url, err = _fetch_page(current_url)
+            if err:
+                errors.append(err)
+                break
         pages_tried += 1
 
         page_vehicles: list[dict[str, Any]] = []
@@ -733,6 +765,257 @@ def _extract_from_headings(soup: Any, base_url: str) -> list[dict[str, Any]]:
                         v["detail_url"] = urllib.parse.urljoin(base_url, a_tag["href"])
                 vehicles.append(v)
     return vehicles[:MAX_VEHICLES]
+
+
+# ---------------------------------------------------------------------------
+# Strategy 0: Typesense InstantSearch adapter
+# ---------------------------------------------------------------------------
+# Many OEM dealer websites (Toyota, Honda, Nissan, VW, etc.) built on
+# Dealer.com / CDK Roadster / similar platforms use the
+# TypesenseInstantSearchAdapter JavaScript library.  The page embeds the
+# Typesense API key, host, and collection name in a <script> block, allowing
+# us to query the full inventory directly from the Typesense REST API — no
+# JS execution required.
+#
+# Pattern also covers sites using the older Algolia InstantSearch library
+# (same detection approach, different query URL).
+
+_TS_ADAPTER_RE = re.compile(
+    r"TypesenseInstantSearchAdapter\s*\(\s*\{(.*?)\}\s*\)",
+    re.DOTALL,
+)
+_TS_API_KEY_RE = re.compile(r'apiKey\s*:\s*["\']([^"\']{8,})["\']')
+_TS_HOST_RE = re.compile(r'host\s*:\s*["\']([a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,})["\']')
+_TS_PORT_RE = re.compile(r'port\s*:\s*(\d+)')
+_TS_PROTOCOL_RE = re.compile(r'protocol\s*:\s*["\']([a-z]+)["\']')
+_TS_INDEX_RE = re.compile(r'var\s+indexName\s*=\s*["\']([^"\']+)["\']')
+_TS_CONDITION_RE = re.compile(r'var\s+srpCondition\s*=\s*["\']([^"\']+)["\']')
+
+_ALGOLIA_RE = re.compile(
+    r"algoliasearch\s*\(\s*['\"]([A-Z0-9]{8,12})['\"]\s*,\s*['\"]([a-f0-9]{32})['\"]",
+    re.DOTALL,
+)
+_ALGOLIA_INDEX_RE = re.compile(r'indexName\s*:\s*["\']([^"\']+)["\']')
+
+
+def _try_typesense(
+    html: str, page_url: str, max_vehicles: int
+) -> tuple[list[dict[str, Any]], str] | None:
+    """Try to extract inventory via the Typesense or Algolia InstantSearch API.
+
+    Returns (vehicles, error_string) if this strategy applies (even if it fails),
+    or None if the page doesn't use Typesense/Algolia at all.
+    """
+    # ---- Typesense detection ----
+    adapter_match = _TS_ADAPTER_RE.search(html)
+    if adapter_match:
+        block = adapter_match.group(0)
+        api_key_m = _TS_API_KEY_RE.search(block)
+        host_m = _TS_HOST_RE.search(block)
+        if not api_key_m or not host_m:
+            return [], "Typesense adapter detected but could not extract key/host"
+        api_key = api_key_m.group(1)
+        host = host_m.group(1)
+        port_m = _TS_PORT_RE.search(block)
+        port = int(port_m.group(1)) if port_m else 443
+        proto_m = _TS_PROTOCOL_RE.search(block)
+        protocol = proto_m.group(1) if proto_m else "https"
+
+        # Extract collection name from the surrounding page script
+        index_m = _TS_INDEX_RE.search(html)
+        if not index_m:
+            return [], "Typesense adapter found but could not find indexName variable"
+        collection = index_m.group(1)
+
+        # Filter by condition if present
+        condition_m = _TS_CONDITION_RE.search(html)
+        condition_filter = condition_m.group(1) if condition_m else None
+
+        vehicles, err = _fetch_typesense_all(
+            host=host,
+            port=port,
+            protocol=protocol,
+            api_key=api_key,
+            collection=collection,
+            condition_filter=condition_filter,
+            base_url=page_url,
+            max_vehicles=max_vehicles,
+        )
+        return vehicles, err
+
+    # ---- Algolia detection ----
+    algolia_m = _ALGOLIA_RE.search(html)
+    if algolia_m:
+        app_id = algolia_m.group(1)
+        api_key = algolia_m.group(2)
+        index_m = _ALGOLIA_INDEX_RE.search(html)
+        if not index_m:
+            return [], "Algolia detected but could not find indexName"
+        index = index_m.group(1)
+        vehicles, err = _fetch_algolia_all(
+            app_id=app_id,
+            api_key=api_key,
+            index=index,
+            base_url=page_url,
+            max_vehicles=max_vehicles,
+        )
+        return vehicles, err
+
+    return None  # Strategy doesn't apply
+
+
+def _fetch_typesense_all(
+    *,
+    host: str,
+    port: int,
+    protocol: str,
+    api_key: str,
+    collection: str,
+    condition_filter: str | None,
+    base_url: str,
+    max_vehicles: int,
+) -> tuple[list[dict[str, Any]], str]:
+    """Paginate through all Typesense documents and return normalised vehicles."""
+    vehicles: list[dict[str, Any]] = []
+    page = 1
+    per_page = 100
+    base_api = f"{protocol}://{host}:{port}/collections/{collection}/documents/search"
+    headers = {"X-TYPESENSE-API-KEY": api_key}
+
+    while len(vehicles) < max_vehicles:
+        params: dict[str, Any] = {
+            "q": "*",
+            "query_by": "make,model,trim,vin,stockNumber",
+            "per_page": per_page,
+            "page": page,
+        }
+        if condition_filter:
+            params["filter_by"] = f"condition:={condition_filter}"
+
+        try:
+            resp = requests.get(base_api, headers=headers, params=params, timeout=SCRAPE_TIMEOUT)
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as exc:
+            return vehicles, f"Typesense request failed (page {page}): {exc}"
+        except (json.JSONDecodeError, ValueError) as exc:
+            return vehicles, f"Typesense JSON parse error: {exc}"
+
+        hits = data.get("hits", [])
+        if not hits:
+            break
+
+        for hit in hits:
+            doc = hit.get("document", {})
+            v = _map_typesense_doc(doc, base_url)
+            if v:
+                vehicles.append(v)
+
+        total_found = int(data.get("found", 0))
+        if page * per_page >= total_found or len(vehicles) >= max_vehicles:
+            break
+        page += 1
+
+    return vehicles[:max_vehicles], ""
+
+
+def _map_typesense_doc(doc: dict[str, Any], base_url: str) -> dict[str, Any] | None:
+    """Map a raw Typesense document to our normalised vehicle dict."""
+    v: dict[str, Any] = {}
+
+    v["vin"] = str(doc.get("vin", "") or "").strip().upper()
+    v["stock_number"] = str(doc.get("stockNumber", "") or "").strip()
+    v["external_id"] = str(doc.get("id", "") or "").strip()
+    v["year"] = _int_or_none(doc.get("year"))
+    v["make"] = str(doc.get("make", "") or "").strip().upper()
+    v["model"] = str(doc.get("model", "") or "").strip().upper()
+    v["trim"] = str(doc.get("trim", "") or "").strip()
+    v["body_style"] = str(doc.get("body", "") or doc.get("compoundBody", "") or "").strip()
+    v["ext_color"] = str(doc.get("exteriorColor", "") or "").strip()
+    v["int_color"] = str(doc.get("interiorColor", "") or "").strip()
+    v["transmission"] = str(doc.get("transmission", "") or doc.get("transmissionType", "") or "").strip()
+    v["drivetrain"] = str(doc.get("drivetrain", "") or "").strip()
+    v["engine"] = str(doc.get("engine", "") or "").strip()
+    v["mileage"] = _int_or_none(doc.get("mileage"))
+
+    # Price: prefer internetPrice → finalPrice → price → msrp
+    for price_field in ("internetPrice", "finalPriceInt", "finalPrice", "advertisedPrice", "price", "msrp", "sellingPrice"):
+        raw = doc.get(price_field)
+        if raw:
+            p = _int_or_none(str(raw).replace("$", "").replace(",", ""))
+            if p and p > 500:
+                v["price"] = p
+                break
+
+    # Description from features list or vehicleTitle
+    features = doc.get("features", [])
+    if isinstance(features, list) and features:
+        v["description"] = " · ".join(str(f) for f in features[:12])
+    elif doc.get("vehicleTitle"):
+        v["description"] = str(doc["vehicleTitle"])
+
+    # Images — imageUrls is a list of CDN URLs
+    image_urls = doc.get("imageUrls", [])
+    if isinstance(image_urls, list):
+        v["images"] = [str(u) for u in image_urls if str(u).startswith("http")][:12]
+    elif isinstance(image_urls, str) and image_urls.startswith("http"):
+        v["images"] = [image_urls]
+
+    # Detail URL
+    vdp = str(doc.get("vdpUrl", "") or "").strip()
+    if vdp:
+        v["detail_url"] = urllib.parse.urljoin(base_url, vdp)
+
+    if not _looks_like_vehicle(v):
+        return None
+    return v
+
+
+def _fetch_algolia_all(
+    *,
+    app_id: str,
+    api_key: str,
+    index: str,
+    base_url: str,
+    max_vehicles: int,
+) -> tuple[list[dict[str, Any]], str]:
+    """Paginate through an Algolia index."""
+    vehicles: list[dict[str, Any]] = []
+    page = 0
+    per_page = 100
+    url = f"https://{app_id.lower()}-dsn.algolia.net/1/indexes/{index}/query"
+    headers = {
+        "X-Algolia-Application-Id": app_id,
+        "X-Algolia-API-Key": api_key,
+        "Content-Type": "application/json",
+    }
+    while len(vehicles) < max_vehicles:
+        try:
+            resp = requests.post(
+                url,
+                headers=headers,
+                json={"query": "", "hitsPerPage": per_page, "page": page},
+                timeout=SCRAPE_TIMEOUT,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except requests.RequestException as exc:
+            return vehicles, f"Algolia request failed: {exc}"
+        except (json.JSONDecodeError, ValueError) as exc:
+            return vehicles, f"Algolia JSON error: {exc}"
+
+        hits = data.get("hits", [])
+        if not hits:
+            break
+        for hit in hits:
+            v = _map_generic_json_vehicle(hit, base_url)
+            if _looks_like_vehicle(v):
+                vehicles.append(v)
+        nb_pages = int(data.get("nbPages", 1))
+        if page + 1 >= nb_pages or len(vehicles) >= max_vehicles:
+            break
+        page += 1
+    return vehicles[:max_vehicles], ""
 
 
 # ---------------------------------------------------------------------------
