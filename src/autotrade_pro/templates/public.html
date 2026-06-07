@@ -423,6 +423,101 @@
       .actions { flex-direction: column; align-items: stretch; }
       .actions .right, .actions button { width: 100%; }
     }
+    /* --- Inventory section --- */
+    .inventory-section {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto 56px;
+    }
+    .inventory-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+    .inventory-header h2 {
+      margin: 0;
+      font-size: 28px;
+      color: #fff;
+    }
+    .inventory-header p {
+      margin: 4px 0 0;
+      color: rgba(255,255,255,.8);
+      font-size: 15px;
+    }
+    .inv-filter-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .inv-filter-bar input, .inv-filter-bar select {
+      min-height: 40px;
+      padding: 8px 11px;
+      border-radius: 6px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,.95);
+      color: var(--ink);
+      font-size: 14px;
+      min-width: 140px;
+    }
+    .inv-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 18px;
+    }
+    .inv-card {
+      background: rgba(255,255,255,.96);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(12,24,35,.14);
+      border: 1px solid rgba(255,255,255,.6);
+      transition: transform .16s, box-shadow .16s;
+    }
+    .inv-card:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(12,24,35,.2); }
+    .inv-thumb {
+      width: 100%;
+      height: 170px;
+      object-fit: cover;
+      display: block;
+      background: #d6dfe8;
+    }
+    .inv-thumb-placeholder {
+      width: 100%;
+      height: 170px;
+      background: linear-gradient(135deg, #dde4ec 0%, #c8d2dd 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #7a8fa0;
+      font-size: 38px;
+    }
+    .inv-body { padding: 14px; }
+    .inv-title { font-weight: 800; font-size: 16px; margin: 0 0 4px; line-height: 1.2; }
+    .inv-meta { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+    .inv-price { font-size: 22px; font-weight: 900; color: var(--primary); }
+    .inv-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .inv-actions a, .inv-actions button {
+      flex: 1;
+      min-height: 38px;
+      border-radius: 6px;
+      border: 0;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+    }
+    .inv-btn-primary { background: var(--primary); color: #fff; }
+    .inv-btn-secondary { background: #e7eef3; color: var(--primary); }
+    .inv-empty { text-align: center; color: rgba(255,255,255,.7); padding: 36px 0; font-size: 16px; }
+    .inv-load-more { display: flex; justify-content: center; margin-top: 22px; }
+    @media (max-width: 720px) {
+      .inv-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+    }
   </style>
 </head>
 <body>
@@ -633,6 +728,37 @@
     </section>
   </main>
 
+  <!-- Post-flow inventory section — shown after confirmation step -->
+  <section id="inventorySection" style="display:none;" aria-label="Available inventory">
+    <div class="inventory-section">
+      <div class="inventory-header">
+        <div>
+          <h2>Browse Available Inventory</h2>
+          <p>Put your trade-in value toward one of these vehicles</p>
+        </div>
+        <div class="inv-filter-bar">
+          <input id="invSearch" type="search" placeholder="Search make, model…" oninput="filterInventory()">
+          <select id="invMaxPrice" onchange="filterInventory()">
+            <option value="">Any price</option>
+            <option value="15000">Under $15,000</option>
+            <option value="25000">Under $25,000</option>
+            <option value="35000">Under $35,000</option>
+            <option value="50000">Under $50,000</option>
+          </select>
+          <select id="invBodyStyle" onchange="filterInventory()">
+            <option value="">Any body style</option>
+          </select>
+        </div>
+      </div>
+      <div class="inv-grid" id="invGrid">
+        <div class="inv-empty" style="grid-column:1/-1;">Loading inventory…</div>
+      </div>
+      <div class="inv-load-more" id="invLoadMore" style="display:none;">
+        <button class="primary" style="border:0; border-radius:6px; padding:12px 24px; font-weight:800; font-size:15px; cursor:pointer;" onclick="loadMoreInventory()">Load more vehicles</button>
+      </div>
+    </div>
+  </section>
+
   <div class="trend-modal" id="trendModal" hidden>
     <div class="trend-dialog" role="dialog" aria-modal="true" aria-labelledby="trendTitle">
       <div class="trend-head">
@@ -673,6 +799,178 @@
   </script>
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   <script>
+    // -----------------------------------------------------------------------
+    // Inventory module
+    // -----------------------------------------------------------------------
+    const inv = {
+      all: [],           // full fetched list
+      filtered: [],      // after client-side filtering
+      displayed: 0,
+      pageSize: 24,
+      loaded: false,
+    };
+
+    async function loadInventory() {
+      if (inv.loaded) return;
+      inv.loaded = true;
+      try {
+        const slug = window.AUTOTRADE.dealer.slug;
+        const resp = await fetch(`/api/dealers/${slug}/inventory?limit=200`);
+        const data = await resp.json();
+        inv.all = (data.vehicles || []);
+        // Populate body-style filter
+        const styles = [...new Set(inv.all.map(v => v.body_style).filter(Boolean))].sort();
+        const sel = document.getElementById("invBodyStyle");
+        styles.forEach(s => {
+          const opt = document.createElement("option");
+          opt.value = s;
+          opt.textContent = s;
+          sel.appendChild(opt);
+        });
+        filterInventory();
+      } catch (err) {
+        document.getElementById("invGrid").innerHTML =
+          `<div class="inv-empty" style="grid-column:1/-1;">Could not load inventory.</div>`;
+      }
+    }
+
+    function filterInventory() {
+      const query = (document.getElementById("invSearch").value || "").toLowerCase().trim();
+      const maxPrice = parseInt(document.getElementById("invMaxPrice").value || "0");
+      const style = (document.getElementById("invBodyStyle").value || "").toLowerCase();
+
+      inv.filtered = inv.all.filter(v => {
+        const text = `${v.year || ""} ${v.make || ""} ${v.model || ""} ${v.trim || ""}`.toLowerCase();
+        if (query && !text.includes(query)) return false;
+        if (maxPrice && v.price && v.price > maxPrice) return false;
+        if (style && (v.body_style || "").toLowerCase() !== style) return false;
+        return true;
+      });
+
+      inv.displayed = 0;
+      document.getElementById("invGrid").innerHTML = "";
+      renderInvCards(inv.pageSize);
+    }
+
+    function renderInvCards(count) {
+      const grid = document.getElementById("invGrid");
+      if (!inv.filtered.length && !inv.displayed) {
+        grid.innerHTML = `<div class="inv-empty" style="grid-column:1/-1;">No vehicles match your filters.</div>`;
+        document.getElementById("invLoadMore").style.display = "none";
+        return;
+      }
+      const slice = inv.filtered.slice(inv.displayed, inv.displayed + count);
+      slice.forEach(v => {
+        grid.appendChild(buildInvCard(v));
+      });
+      inv.displayed += slice.length;
+      document.getElementById("invLoadMore").style.display =
+        inv.displayed < inv.filtered.length ? "" : "none";
+    }
+
+    function loadMoreInventory() {
+      renderInvCards(inv.pageSize);
+    }
+
+    function buildInvCard(v) {
+      const card = document.createElement("div");
+      card.className = "inv-card";
+
+      const images = Array.isArray(v.images) ? v.images : [];
+      const imgSrc = images[0] || "";
+      if (imgSrc) {
+        const img = document.createElement("img");
+        img.className = "inv-thumb";
+        img.src = imgSrc;
+        img.alt = `${v.year || ""} ${v.make || ""} ${v.model || ""}`.trim();
+        img.loading = "lazy";
+        img.onerror = () => {
+          img.style.display = "none";
+          const ph = document.createElement("div");
+          ph.className = "inv-thumb-placeholder";
+          ph.textContent = "🚗";
+          card.insertBefore(ph, img);
+        };
+        card.appendChild(img);
+      } else {
+        const ph = document.createElement("div");
+        ph.className = "inv-thumb-placeholder";
+        ph.textContent = "🚗";
+        card.appendChild(ph);
+      }
+
+      const body = document.createElement("div");
+      body.className = "inv-body";
+
+      const title = document.createElement("div");
+      title.className = "inv-title";
+      title.textContent = `${v.year || ""} ${v.make || ""} ${v.model || ""} ${v.trim || ""}`.trim() || "Vehicle";
+      body.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "inv-meta";
+      const parts = [];
+      if (v.mileage) parts.push(v.mileage.toLocaleString() + " mi");
+      if (v.ext_color) parts.push(v.ext_color);
+      if (v.body_style) parts.push(v.body_style);
+      meta.textContent = parts.join(" · ") || "\u00a0";
+      body.appendChild(meta);
+
+      const price = document.createElement("div");
+      price.className = "inv-price";
+      if (v.price) {
+        price.textContent = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v.price);
+        // Show trade-in credit suggestion
+        if (state.valuation && state.valuation.trade_offer) {
+          const net = v.price - state.valuation.trade_offer;
+          const netEl = document.createElement("span");
+          netEl.style.cssText = "font-size:13px; font-weight:700; color:var(--muted); margin-left:8px;";
+          netEl.title = "Estimated net cost after your trade-in offer";
+          netEl.textContent = `(net ${new Intl.NumberFormat("en-US", {style:"currency",currency:"USD",maximumFractionDigits:0}).format(Math.max(net,0))} w/ trade)`;
+          price.appendChild(netEl);
+        }
+      } else {
+        price.textContent = "Call for price";
+        price.style.fontSize = "16px";
+        price.style.color = "var(--muted)";
+      }
+      body.appendChild(price);
+
+      const actions = document.createElement("div");
+      actions.className = "inv-actions";
+      if (v.detail_url) {
+        const link = document.createElement("a");
+        link.className = "inv-btn-primary";
+        link.href = v.detail_url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = "View details";
+        actions.appendChild(link);
+      }
+      const callBtn = document.createElement("a");
+      callBtn.className = "inv-btn-secondary";
+      const phone = window.AUTOTRADE.dealer.phone || "";
+      if (phone) {
+        callBtn.href = "tel:" + phone.replace(/\D/g, "");
+        callBtn.textContent = "Call dealer";
+      } else {
+        callBtn.style.display = "none";
+      }
+      actions.appendChild(callBtn);
+      body.appendChild(actions);
+
+      card.appendChild(body);
+      return card;
+    }
+
+    function showInventorySection() {
+      const section = document.getElementById("inventorySection");
+      if (!section) return;
+      section.style.display = "";
+      loadInventory();
+    }
+
+
     const steps = ["vin", "mileage", "condition", "photos", "incentives", "valuation", "appointment", "confirmation"];
     const stepLabels = ["Vehicle", "Mileage", "Condition", "Photos", "Perks", "Offer", "Booking", "Done"];
     const revealRank = { vin: 0, mileage: 1, condition: 2, photos: 3, offer: 5 };
@@ -1194,6 +1492,10 @@
       state.step = index;
       update();
       maybeAutoGenerateValuation();
+      // Show inventory section when the user reaches confirmation (step 7)
+      if (index >= 7) {
+        showInventorySection();
+      }
     }
 
     function update() {

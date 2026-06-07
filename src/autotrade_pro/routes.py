@@ -36,20 +36,31 @@ from .config import AppConfig
 from .crm import emit_crm_event
 from .database import (
     add_vehicle_photo,
+    count_inventory_vehicles,
     create_customer_and_appointment,
+    create_inventory_source,
     create_valuation,
+    delete_inventory_source,
+    delete_inventory_vehicle,
     fetch_admin_dashboard_metrics,
     fetch_dashboard_stats,
     fetch_dealer_by_slug,
     fetch_first_dealer,
     fetch_valuation_by_public_id,
+    get_inventory_source,
+    get_inventory_vehicle,
     list_crm_events,
     list_data_source_status,
     list_dealer_leads,
     list_dealers,
     list_incentives,
+    list_inventory_sources,
+    list_inventory_vehicles,
     update_dealer,
     update_incentive,
+    update_inventory_source_sync_result,
+    update_inventory_vehicle,
+    upsert_inventory_vehicles,
 )
 from .market_data import MarketDataAggregator, import_market_csv
 from .notifications import send_confirmation
@@ -58,6 +69,7 @@ from .valuation import build_valuation_record, calculate_valuation
 from .vehicle_options import BODY_STYLES, VehicleOptionsClient
 from .vin import NhtsaVinDecoder, VinDecodeError, fallback_decode, normalize_vin
 from .workers import refresh_market_data_once
+from .inventory_scraper import scrape_inventory
 
 
 def create_blueprint(config: AppConfig) -> Blueprint:
@@ -506,6 +518,182 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     def not_found(_: Exception) -> tuple[str, int]:
         return render_template("not_found.html"), 404
 
+    # ------------------------------------------------------------------
+    # Public inventory API
+    # ------------------------------------------------------------------
+
+    @bp.get("/api/dealers/<dealer_slug>/inventory")
+    def public_inventory(dealer_slug: str) -> Response:
+        dealer = _dealer_or_404(config, dealer_slug)
+        limit = min(int(request.args.get("limit", 48)), 200)
+        offset = int(request.args.get("offset", 0))
+        vehicles = list_inventory_vehicles(
+            config.database_path, dealer["id"], status="active", limit=limit, offset=offset
+        )
+        total = count_inventory_vehicles(config.database_path, dealer["id"], status="active")
+        return jsonify({"ok": True, "vehicles": vehicles, "total": total, "limit": limit, "offset": offset})
+
+    # ------------------------------------------------------------------
+    # Admin inventory routes
+    # ------------------------------------------------------------------
+
+    @bp.get("/admin/inventory")
+    @_require_admin
+    def admin_inventory() -> str:
+        dealers = list_dealers(config.database_path)
+        selected_slug = request.args.get("dealer") or (dealers[0]["slug"] if dealers else "")
+        dealer = fetch_dealer_by_slug(config.database_path, selected_slug) or (dealers[0] if dealers else None)
+        if dealer is None:
+            abort(500)
+        sources = list_inventory_sources(config.database_path, dealer["id"])
+        vehicles = list_inventory_vehicles(
+            config.database_path, dealer["id"], status="all", limit=300
+        )
+        total = count_inventory_vehicles(config.database_path, dealer["id"], status="all")
+        active = count_inventory_vehicles(config.database_path, dealer["id"], status="active")
+        return render_template(
+            "admin_inventory.html",
+            dealers=dealers,
+            dealer=dealer,
+            sources=sources,
+            vehicles=vehicles,
+            total=total,
+            active=active,
+            sync_result=request.args.get("sync_result", ""),
+            sync_error=request.args.get("sync_error", ""),
+        )
+
+    @bp.post("/admin/inventory/sources")
+    @_require_admin
+    def admin_inventory_add_source() -> Response:
+        dealer_id = int(request.form.get("dealer_id", 0))
+        url = request.form.get("url", "").strip()
+        label = request.form.get("label", "").strip()
+        dealer_slug = request.form.get("dealer_slug", config.default_dealer_slug)
+        if not url:
+            return redirect(url_for("autotrade.admin_inventory", dealer=dealer_slug))
+        if not label:
+            label = url
+        create_inventory_source(config.database_path, dealer_id, url, label)
+        return redirect(url_for("autotrade.admin_inventory", dealer=dealer_slug))
+
+    @bp.post("/admin/inventory/sources/<int:source_id>/delete")
+    @_require_admin
+    def admin_inventory_delete_source(source_id: int) -> Response:
+        dealer_slug = request.form.get("dealer_slug", config.default_dealer_slug)
+        delete_inventory_source(config.database_path, source_id)
+        return redirect(url_for("autotrade.admin_inventory", dealer=dealer_slug))
+
+    @bp.post("/admin/inventory/sources/<int:source_id>/sync")
+    @_require_admin
+    def admin_inventory_sync_source(source_id: int) -> Response:
+        dealer_slug = request.form.get("dealer_slug", config.default_dealer_slug)
+        source = get_inventory_source(config.database_path, source_id)
+        if source is None:
+            return redirect(url_for("autotrade.admin_inventory", dealer=dealer_slug))
+        dealer = fetch_dealer_by_slug(config.database_path, dealer_slug) or fetch_first_dealer(config.database_path)
+        openai_key = dealer.get("openai_api_key", "") if dealer else ""
+        openai_model = dealer.get("openai_model", "gpt-4.1-mini") if dealer else "gpt-4.1-mini"
+        try:
+            result = scrape_inventory(
+                source["url"],
+                openai_api_key=openai_key,
+                openai_model=openai_model,
+            )
+            vehicles = result.get("vehicles", [])
+            errors = result.get("errors", [])
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            count = upsert_inventory_vehicles(
+                config.database_path,
+                source["dealer_id"],
+                source_id,
+                vehicles,
+                now,
+            )
+            update_inventory_source_sync_result(
+                config.database_path,
+                source_id,
+                count=count,
+                status="ok",
+                error="; ".join(errors) if errors else "",
+            )
+            sync_msg = f"Synced {count} vehicles (strategy: {result.get('source', '?')})"
+            if errors:
+                sync_msg += f" — warnings: {'; '.join(errors[:2])}"
+            return redirect(
+                url_for("autotrade.admin_inventory", dealer=dealer_slug, sync_result=sync_msg)
+            )
+        except Exception as exc:
+            update_inventory_source_sync_result(
+                config.database_path,
+                source_id,
+                count=0,
+                status="error",
+                error=str(exc)[:500],
+            )
+            return redirect(
+                url_for("autotrade.admin_inventory", dealer=dealer_slug, sync_error=str(exc)[:200])
+            )
+
+    @bp.post("/admin/inventory/sources/<int:source_id>/scrape-preview")
+    @_require_admin
+    def admin_inventory_scrape_preview(source_id: int) -> Response:
+        """Return a JSON preview of what would be scraped (no DB write)."""
+        source = get_inventory_source(config.database_path, source_id)
+        if source is None:
+            return jsonify({"ok": False, "error": "Source not found"}), 404
+        dealer_slug = request.form.get("dealer_slug", config.default_dealer_slug)
+        dealer = fetch_dealer_by_slug(config.database_path, dealer_slug) or fetch_first_dealer(config.database_path)
+        openai_key = dealer.get("openai_api_key", "") if dealer else ""
+        openai_model = dealer.get("openai_model", "gpt-4.1-mini") if dealer else "gpt-4.1-mini"
+        result = scrape_inventory(
+            source["url"],
+            openai_api_key=openai_key,
+            openai_model=openai_model,
+            max_vehicles=10,
+        )
+        return jsonify({"ok": True, **result})
+
+    @bp.post("/admin/inventory/<int:vehicle_id>/edit")
+    @_require_admin
+    def admin_inventory_edit_vehicle(vehicle_id: int) -> Response:
+        dealer_slug = request.form.get("dealer_slug", config.default_dealer_slug)
+        images_raw = request.form.get("images", "[]")
+        try:
+            images = json.loads(images_raw)
+            if not isinstance(images, list):
+                images = []
+        except Exception:
+            images = []
+        fields = {
+            "year": _int_or_none(request.form.get("year")),
+            "make": request.form.get("make", "").strip().upper(),
+            "model": request.form.get("model", "").strip().upper(),
+            "trim": request.form.get("trim", "").strip(),
+            "body_style": request.form.get("body_style", "").strip(),
+            "price": _int_or_none(request.form.get("price")),
+            "mileage": _int_or_none(request.form.get("mileage")),
+            "ext_color": request.form.get("ext_color", "").strip(),
+            "int_color": request.form.get("int_color", "").strip(),
+            "transmission": request.form.get("transmission", "").strip(),
+            "drivetrain": request.form.get("drivetrain", "").strip(),
+            "engine": request.form.get("engine", "").strip(),
+            "description": request.form.get("description", "").strip(),
+            "detail_url": request.form.get("detail_url", "").strip(),
+            "status": request.form.get("status", "active"),
+            "notes": request.form.get("notes", "").strip(),
+            "images_json": json.dumps(images),
+        }
+        update_inventory_vehicle(config.database_path, vehicle_id, fields)
+        return redirect(url_for("autotrade.admin_inventory", dealer=dealer_slug))
+
+    @bp.post("/admin/inventory/<int:vehicle_id>/delete")
+    @_require_admin
+    def admin_inventory_delete_vehicle(vehicle_id: int) -> Response:
+        dealer_slug = request.form.get("dealer_slug", config.default_dealer_slug)
+        delete_inventory_vehicle(config.database_path, vehicle_id)
+        return redirect(url_for("autotrade.admin_inventory", dealer=dealer_slug))
+
     return bp
 
 
@@ -614,6 +802,13 @@ def _float_or_default(value: object, default: float) -> float:
         return float(str(value).strip())
     except (TypeError, ValueError):
         return default
+
+
+def _int_or_none(value: object) -> int | None:
+    try:
+        return int(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
 
 
 def _labels_for_files(labels: Any, file_count: int) -> list[str]:

@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inventory — AutoTrade Pro Admin</title>
+  <style>
+    :root {
+      --primary: {{ dealer.primary_color }};
+      --accent: {{ dealer.accent_color }};
+      --ink: #17212b;
+      --muted: #607080;
+      --line: #d8e0e7;
+      --soft: #f3f6f8;
+      --good: #227c5a;
+      --bad: #9d2b2b;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--ink); background: #edf2f5; }
+    button, input, select, textarea { font: inherit; }
+    a { color: var(--primary); }
+    .layout { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
+    aside { background: #15212c; color: #fff; padding: 22px; }
+    .brand { font-size: 22px; font-weight: 900; letter-spacing: 0; margin-bottom: 24px; }
+    .dealer-switch { display: grid; gap: 8px; margin-bottom: 24px; }
+    aside select { width: 100%; background: #22313f; color: #fff; border: 1px solid #33485a; border-radius: 6px; min-height: 42px; padding: 9px; }
+    nav { display: grid; gap: 8px; }
+    nav a, aside button { color: #dfe8ee; text-decoration: none; min-height: 40px; border-radius: 6px; display: flex; align-items: center; padding: 9px 10px; background: transparent; border: 0; cursor: pointer; width: 100%; text-align: left; }
+    nav a:hover, aside button:hover, nav a.active { background: #22313f; }
+    main { padding: clamp(20px, 4vw, 34px); }
+    h1, h2, h3 { letter-spacing: 0; }
+    h1 { margin: 0; font-size: 34px; }
+    h2 { margin: 0 0 14px; font-size: 22px; }
+    h3 { margin: 0 0 10px; font-size: 16px; }
+    .muted { color: var(--muted); }
+    .topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+    .stat, .panel { background: #fff; border: 1px solid var(--line); border-radius: 8px; }
+    .stat { padding: 16px; }
+    .stat span { color: var(--muted); font-size: 12px; text-transform: uppercase; font-weight: 850; }
+    .stat strong { display: block; margin-top: 6px; font-size: 28px; }
+    .panel { padding: 18px; margin-bottom: 18px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: #40505f; font-size: 12px; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    .pill { display: inline-flex; align-items: center; min-height: 24px; border-radius: 999px; padding: 3px 8px; background: #e9f2f7; color: var(--primary); font-weight: 800; font-size: 12px; white-space: nowrap; }
+    .pill.sold { background: #fce8e8; color: var(--bad); }
+    .pill.hidden { background: #f0f0f0; color: #777; }
+    .pill.ok { background: #e6f4ec; color: var(--good); }
+    .pill.error { background: #fce8e8; color: var(--bad); }
+    label { display: grid; gap: 6px; font-size: 13px; color: #45525f; font-weight: 800; }
+    input, select, textarea { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 6px; padding: 9px 10px; background: #fff; color: var(--ink); }
+    textarea { min-height: 72px; resize: vertical; }
+    .btn { min-height: 40px; border: 0; border-radius: 6px; padding: 8px 13px; color: #fff; background: var(--primary); font-weight: 800; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none; font-size: 14px; }
+    .btn.secondary { color: var(--primary); background: #e7eef3; }
+    .btn.danger { background: var(--bad); }
+    .btn.sm { min-height: 32px; padding: 5px 10px; font-size: 13px; }
+    .grid-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    .full { grid-column: 1 / -1; }
+    .source-card { border: 1px solid var(--line); border-radius: 8px; padding: 14px; background: #fff; margin-bottom: 12px; }
+    .source-card header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+    .source-card header h3 { margin: 0; font-size: 15px; }
+    .source-card .url { color: var(--muted); font-size: 13px; word-break: break-all; }
+    .source-card .meta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+    .source-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .alert { padding: 12px 14px; border-radius: 8px; margin-bottom: 16px; font-weight: 700; font-size: 14px; }
+    .alert.success { background: #e6f4ec; color: #1a5c3a; border: 1px solid #b3dbc5; }
+    .alert.error { background: #fce8e8; color: #7a1a1a; border: 1px solid #e8b0b0; }
+    .vehicle-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 8px; }
+    .vehicle-card { border: 1px solid var(--line); border-radius: 8px; background: #fff; overflow: hidden; position: relative; }
+    .vehicle-card .thumb { width: 100%; height: 160px; object-fit: cover; background: #edf2f5; display: block; }
+    .vehicle-card .thumb-placeholder { width: 100%; height: 160px; background: #edf2f5; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+    .vehicle-card .card-body { padding: 12px; }
+    .vehicle-card .card-title { font-weight: 800; font-size: 15px; margin: 0 0 4px; }
+    .vehicle-card .card-meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .vehicle-card .card-price { font-size: 20px; font-weight: 900; color: var(--primary); }
+    .vehicle-card .card-actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    .vehicle-card .edited-badge { position: absolute; top: 8px; right: 8px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 800; padding: 3px 7px; border-radius: 999px; }
+    .modal-overlay { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 18px; background: rgba(9, 18, 28, .6); }
+    .modal-overlay[hidden] { display: none; }
+    .modal { width: min(700px, 100%); max-height: calc(100vh - 40px); overflow: auto; border-radius: 8px; background: #fff; box-shadow: 0 22px 70px rgba(0,0,0,.26); border: 1px solid var(--line); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+    .modal-head h2 { margin: 0; font-size: 20px; }
+    .modal-body { padding: 18px; }
+    .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 14px 18px; border-top: 1px solid var(--line); }
+    .view-toggle { display: flex; gap: 6px; margin-bottom: 14px; }
+    .view-toggle button { background: #e7eef3; color: var(--primary); border: 0; border-radius: 6px; padding: 6px 13px; font-weight: 800; font-size: 13px; cursor: pointer; }
+    .view-toggle button.active { background: var(--primary); color: #fff; }
+    #tableView { overflow-x: auto; }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; }
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .grid-form { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="brand">AutoTrade Pro</div>
+    <form class="dealer-switch" method="get" action="/admin/inventory">
+      <label>
+        Dealer
+        <select name="dealer" onchange="this.form.submit()">
+          {% for item in dealers %}
+            <option value="{{ item.slug }}" {% if item.id == dealer.id %}selected{% endif %}>{{ item.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+    <nav>
+      <a href="/admin/dashboard?dealer={{ dealer.slug }}">Dashboard</a>
+      <a href="/admin?dealer={{ dealer.slug }}">Leads & Settings</a>
+      <a href="/admin/inventory?dealer={{ dealer.slug }}" class="active">Inventory</a>
+      <a href="/d/{{ dealer.slug }}">Public App</a>
+      <a href="/admin/export.csv">Export CSV</a>
+    </nav>
+    <form method="post" action="/admin/logout" style="margin-top:24px;"><button type="submit">Sign out</button></form>
+  </aside>
+
+  <main>
+    <div class="topline">
+      <div>
+        <h1>Inventory</h1>
+        <div class="muted">{{ dealer.name }}</div>
+      </div>
+      <button class="btn" onclick="document.getElementById('addSourceModal').removeAttribute('hidden')">+ Add Source URL</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><span>Total vehicles</span><strong>{{ total }}</strong></div>
+      <div class="stat"><span>Active listings</span><strong>{{ active }}</strong></div>
+      <div class="stat"><span>Sources configured</span><strong>{{ sources|length }}</strong></div>
+      <div class="stat"><span>Dealer</span><strong style="font-size:16px;">{{ dealer.name }}</strong></div>
+    </div>
+
+    {% if sync_result %}
+      <div class="alert success">{{ sync_result }}</div>
+    {% endif %}
+    {% if sync_error %}
+      <div class="alert error">Sync error: {{ sync_error }}</div>
+    {% endif %}
+
+    <!-- Sources -->
+    <div class="panel" id="sources">
+      <h2>Inventory Sources</h2>
+      <p class="muted" style="margin:0 0 14px;">Configure URLs to scrape for available inventory. The scraper tries structured data (JSON-LD), embedded JSON, common HTML patterns, and AI as a fallback.</p>
+
+      {% for source in sources %}
+        <div class="source-card">
+          <header>
+            <div>
+              <h3>{{ source.label or source.url }}</h3>
+              <div class="url">{{ source.url }}</div>
+            </div>
+            <span class="pill {% if source.last_sync_status == 'ok' %}ok{% elif source.last_sync_status == 'error' %}error{% endif %}">
+              {{ source.last_sync_status }}
+            </span>
+          </header>
+          <div class="meta">
+            {% if source.last_synced_at %}
+              <span class="muted" style="font-size:13px;">Last synced {{ source.last_synced_at }} · {{ source.last_sync_count }} vehicles</span>
+            {% else %}
+              <span class="muted" style="font-size:13px;">Never synced</span>
+            {% endif %}
+            {% if source.last_sync_error %}
+              <span style="color:var(--bad); font-size:13px;">{{ source.last_sync_error }}</span>
+            {% endif %}
+          </div>
+          <div class="source-actions" style="margin-top:10px;">
+            <form method="post" action="/admin/inventory/sources/{{ source.id }}/sync" style="display:inline;">
+              <input type="hidden" name="dealer_slug" value="{{ dealer.slug }}">
+              <button class="btn sm" type="submit" onclick="this.disabled=true; this.textContent='Syncing…'">⟳ Sync now</button>
+            </form>
+            <button class="btn sm secondary" onclick="previewSource({{ source.id }}, '{{ dealer.slug }}')">Preview (no save)</button>
+            <form method="post" action="/admin/inventory/sources/{{ source.id }}/delete" style="display:inline;"
+                  onsubmit="return confirm('Delete this source? Existing vehicles will not be removed.');">
+              <input type="hidden" name="dealer_slug" value="{{ dealer.slug }}">
+              <button class="btn sm danger" type="submit">Delete source</button>
+            </form>
+          </div>
+        </div>
+      {% else %}
+        <div class="muted" style="padding:14px 0;">No sources yet. Add a URL to start importing inventory.</div>
+      {% endfor %}
+    </div>
+
+    <!-- Vehicles -->
+    <div class="panel" id="inventory">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <h2 style="margin:0;">Vehicles ({{ total }})</h2>
+        <div class="view-toggle">
+          <button class="active" id="gridViewBtn" onclick="setView('grid')">Grid</button>
+          <button id="tableViewBtn" onclick="setView('table')">Table</button>
+        </div>
+      </div>
+
+      <div id="gridView" class="vehicle-grid">
+        {% for v in vehicles %}
+          {% set images = v.images if v.images else [] %}
+          <div class="vehicle-card" data-status="{{ v.status }}">
+            {% if images %}
+              <img class="thumb" src="{{ images[0] }}" alt="{{ v.year }} {{ v.make }} {{ v.model }}" loading="lazy"
+                   onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+              <div class="thumb-placeholder" style="display:none;">No image</div>
+            {% else %}
+              <div class="thumb-placeholder">No image</div>
+            {% endif %}
+            {% if v.manually_edited %}<span class="edited-badge">Edited</span>{% endif %}
+            <div class="card-body">
+              <div class="card-title">{{ v.year or '' }} {{ v.make }} {{ v.model }} {{ v.trim }}</div>
+              <div class="card-meta">
+                {% if v.mileage %}{{ "{:,}".format(v.mileage) }} mi · {% endif %}
+                {% if v.ext_color %}{{ v.ext_color }} · {% endif %}
+                <span class="pill {% if v.status == 'sold' %}sold{% elif v.status == 'hidden' %}hidden{% endif %}">{{ v.status }}</span>
+              </div>
+              {% if v.price %}
+                <div class="card-price">${{ "{:,}".format(v.price) }}</div>
+              {% else %}
+                <div class="card-price muted">No price</div>
+              {% endif %}
+              <div class="card-actions">
+                <button class="btn sm secondary" onclick="openEdit({{ v|tojson }})">Edit</button>
+                <form method="post" action="/admin/inventory/{{ v.id }}/delete" style="display:inline;"
+                      onsubmit="return confirm('Delete this vehicle?');">
+                  <input type="hidden" name="dealer_slug" value="{{ dealer.slug }}">
+                  <button class="btn sm danger" type="submit">Delete</button>
+                </form>
+                {% if v.detail_url %}
+                  <a class="btn sm secondary" href="{{ v.detail_url }}" target="_blank" rel="noopener">View ↗</a>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <div class="muted">No vehicles yet. Sync a source to import inventory.</div>
+        {% endfor %}
+      </div>
+
+      <div id="tableView" style="display:none;">
+        <table>
+          <thead>
+            <tr>
+              <th>Vehicle</th>
+              <th>Price</th>
+              <th>Mileage</th>
+              <th>Color</th>
+              <th>VIN / Stock</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in vehicles %}
+              <tr>
+                <td>
+                  <strong>{{ v.year or '' }} {{ v.make }} {{ v.model }}</strong><br>
+                  <span class="muted">{{ v.trim }}</span>
+                </td>
+                <td>{% if v.price %}<strong>${{ "{:,}".format(v.price) }}</strong>{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{% if v.mileage %}{{ "{:,}".format(v.mileage) }} mi{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td>{{ v.ext_color or '—' }}</td>
+                <td>
+                  {% if v.vin %}<code style="font-size:11px;">{{ v.vin }}</code><br>{% endif %}
+                  {% if v.stock_number %}<span class="muted">{{ v.stock_number }}</span>{% endif %}
+                </td>
+                <td><span class="pill {% if v.status == 'sold' %}sold{% elif v.status == 'hidden' %}hidden{% endif %}">{{ v.status }}</span></td>
+                <td>
+                  <button class="btn sm secondary" onclick="openEdit({{ v|tojson }})">Edit</button>
+                  <form method="post" action="/admin/inventory/{{ v.id }}/delete" style="display:inline;"
+                        onsubmit="return confirm('Delete this vehicle?');">
+                    <input type="hidden" name="dealer_slug" value="{{ dealer.slug }}">
+                    <button class="btn sm danger" type="submit">Del</button>
+                  </form>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="7" class="muted">No vehicles yet.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Add Source Modal -->
+<div class="modal-overlay" id="addSourceModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2>Add Inventory Source</h2>
+      <button class="btn secondary sm" onclick="document.getElementById('addSourceModal').setAttribute('hidden','')">✕</button>
+    </div>
+    <div class="modal-body">
+      <form method="post" action="/admin/inventory/sources" class="grid-form">
+        <input type="hidden" name="dealer_id" value="{{ dealer.id }}">
+        <input type="hidden" name="dealer_slug" value="{{ dealer.slug }}">
+        <label class="full">
+          Inventory page URL
+          <input name="url" type="url" required placeholder="https://www.yourdealership.com/inventory">
+          <span class="muted" style="font-size:12px; font-weight:400;">Point to a page listing available cars — the scraper will handle most formats automatically.</span>
+        </label>
+        <label class="full">
+          Label (optional)
+          <input name="label" placeholder="Main website inventory">
+        </label>
+        <div class="full modal-foot" style="padding:0; border:0; justify-content:flex-start;">
+          <button class="btn" type="submit">Add source</button>
+          <button class="btn secondary" type="button" onclick="document.getElementById('addSourceModal').setAttribute('hidden','')">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Vehicle Modal -->
+<div class="modal-overlay" id="editModal" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h2 id="editModalTitle">Edit Vehicle</h2>
+      <button class="btn secondary sm" onclick="closeEdit()">✕</button>
+    </div>
+    <form id="editForm" method="post" action="" class="modal-body">
+      <input type="hidden" name="dealer_slug" value="{{ dealer.slug }}">
+      <div class="grid-form">
+        <label>Year<input name="year" id="ef_year" type="number"></label>
+        <label>Status
+          <select name="status" id="ef_status">
+            <option value="active">Active</option>
+            <option value="sold">Sold</option>
+            <option value="hidden">Hidden</option>
+          </select>
+        </label>
+        <label>Make<input name="make" id="ef_make"></label>
+        <label>Model<input name="model" id="ef_model"></label>
+        <label>Trim<input name="trim" id="ef_trim"></label>
+        <label>Body style<input name="body_style" id="ef_body_style"></label>
+        <label>Price ($)<input name="price" id="ef_price" type="number"></label>
+        <label>Mileage<input name="mileage" id="ef_mileage" type="number"></label>
+        <label>Ext color<input name="ext_color" id="ef_ext_color"></label>
+        <label>Int color<input name="int_color" id="ef_int_color"></label>
+        <label>Transmission<input name="transmission" id="ef_transmission"></label>
+        <label>Drivetrain<input name="drivetrain" id="ef_drivetrain"></label>
+        <label class="full">Engine<input name="engine" id="ef_engine"></label>
+        <label class="full">Detail URL<input name="detail_url" id="ef_detail_url" type="url"></label>
+        <label class="full">Image URLs (one per line)
+          <textarea name="_images_text" id="ef_images_text" rows="4" placeholder="https://...&#10;https://..."></textarea>
+          <input type="hidden" name="images" id="ef_images">
+        </label>
+        <label class="full">Description<textarea name="description" id="ef_description"></textarea></label>
+        <label class="full">Admin notes<input name="notes" id="ef_notes" placeholder="Internal notes visible only in admin"></label>
+      </div>
+    </form>
+    <div class="modal-foot">
+      <button class="btn secondary" onclick="closeEdit()">Cancel</button>
+      <button class="btn" onclick="submitEdit()">Save changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Preview Modal -->
+<div class="modal-overlay" id="previewModal" hidden>
+  <div class="modal" style="width:min(800px,100%);">
+    <div class="modal-head">
+      <h2>Scrape Preview</h2>
+      <button class="btn secondary sm" onclick="document.getElementById('previewModal').setAttribute('hidden','')">✕</button>
+    </div>
+    <div class="modal-body" id="previewBody">
+      <p>Loading…</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  function setView(view) {
+    document.getElementById("gridView").style.display = view === "grid" ? "" : "none";
+    document.getElementById("tableView").style.display = view === "table" ? "" : "none";
+    document.getElementById("gridViewBtn").classList.toggle("active", view === "grid");
+    document.getElementById("tableViewBtn").classList.toggle("active", view === "table");
+  }
+
+  function openEdit(vehicle) {
+    const form = document.getElementById("editForm");
+    form.action = `/admin/inventory/${vehicle.id}/edit`;
+    document.getElementById("editModalTitle").textContent =
+      `Edit: ${vehicle.year || ""} ${vehicle.make} ${vehicle.model}`;
+    document.getElementById("ef_year").value = vehicle.year || "";
+    document.getElementById("ef_make").value = vehicle.make || "";
+    document.getElementById("ef_model").value = vehicle.model || "";
+    document.getElementById("ef_trim").value = vehicle.trim || "";
+    document.getElementById("ef_body_style").value = vehicle.body_style || "";
+    document.getElementById("ef_price").value = vehicle.price || "";
+    document.getElementById("ef_mileage").value = vehicle.mileage || "";
+    document.getElementById("ef_ext_color").value = vehicle.ext_color || "";
+    document.getElementById("ef_int_color").value = vehicle.int_color || "";
+    document.getElementById("ef_transmission").value = vehicle.transmission || "";
+    document.getElementById("ef_drivetrain").value = vehicle.drivetrain || "";
+    document.getElementById("ef_engine").value = vehicle.engine || "";
+    document.getElementById("ef_detail_url").value = vehicle.detail_url || "";
+    document.getElementById("ef_description").value = vehicle.description || "";
+    document.getElementById("ef_notes").value = vehicle.notes || "";
+    document.getElementById("ef_status").value = vehicle.status || "active";
+    const images = vehicle.images || [];
+    document.getElementById("ef_images_text").value = images.join("\n");
+    document.getElementById("ef_images").value = JSON.stringify(images);
+    document.getElementById("editModal").removeAttribute("hidden");
+  }
+
+  function closeEdit() {
+    document.getElementById("editModal").setAttribute("hidden", "");
+  }
+
+  function submitEdit() {
+    // Sync images textarea → hidden JSON field
+    const linesText = document.getElementById("ef_images_text").value;
+    const lines = linesText.split("\n").map(s => s.trim()).filter(s => s.startsWith("http"));
+    document.getElementById("ef_images").value = JSON.stringify(lines);
+    document.getElementById("editForm").submit();
+  }
+
+  async function previewSource(sourceId, dealerSlug) {
+    document.getElementById("previewModal").removeAttribute("hidden");
+    document.getElementById("previewBody").innerHTML = "<p>Scraping (this may take up to 30 seconds)…</p>";
+    try {
+      const resp = await fetch(`/admin/inventory/sources/${sourceId}/scrape-preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `dealer_slug=${encodeURIComponent(dealerSlug)}`,
+      });
+      const data = await resp.json();
+      const vehicles = data.vehicles || [];
+      const errors = data.errors || [];
+      let html = `<p><strong>Strategy: ${data.source || "none"}</strong> &nbsp;·&nbsp; Found ${data.total || 0} vehicles (showing up to 10)</p>`;
+      if (errors.length) {
+        html += `<p style="color:var(--bad);">Warnings: ${errors.join("; ")}</p>`;
+      }
+      if (!vehicles.length) {
+        html += "<p class='muted'>No vehicles found. Try a different URL or check the site structure.</p>";
+      } else {
+        html += "<table><thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Price</th><th>Mileage</th><th>VIN</th></tr></thead><tbody>";
+        vehicles.forEach(v => {
+          html += `<tr>
+            <td>${v.year || "—"}</td>
+            <td>${v.make || "—"}</td>
+            <td>${v.model || "—"} ${v.trim || ""}</td>
+            <td>${v.price ? "$" + v.price.toLocaleString() : "—"}</td>
+            <td>${v.mileage ? v.mileage.toLocaleString() + " mi" : "—"}</td>
+            <td style="font-size:11px;">${v.vin || "—"}</td>
+          </tr>`;
+        });
+        html += "</tbody></table>";
+      }
+      document.getElementById("previewBody").innerHTML = html;
+    } catch (err) {
+      document.getElementById("previewBody").innerHTML = `<p style="color:var(--bad);">Error: ${err.message}</p>`;
+    }
+  }
+
+  // Sync images textarea on input
+  document.getElementById("ef_images_text").addEventListener("input", () => {
+    const lines = document.getElementById("ef_images_text").value.split("\n").map(s => s.trim()).filter(s => s.startsWith("http"));
+    document.getElementById("ef_images").value = JSON.stringify(lines);
+  });
+</script>
+</body>
+</html>

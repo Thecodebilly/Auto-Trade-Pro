@@ -382,10 +382,59 @@ def _schema_sql(postgres: bool) -> str:
                 FOREIGN KEY (valuation_id) REFERENCES valuations(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS inventory_sources (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dealer_id INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                label TEXT NOT NULL DEFAULT '',
+                auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
+                last_synced_at TEXT,
+                last_sync_count INTEGER NOT NULL DEFAULT 0,
+                last_sync_status TEXT NOT NULL DEFAULT 'never',
+                last_sync_error TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (dealer_id) REFERENCES dealers(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS inventory_vehicles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                dealer_id INTEGER NOT NULL,
+                source_id INTEGER,
+                external_id TEXT NOT NULL DEFAULT '',
+                vin TEXT NOT NULL DEFAULT '',
+                stock_number TEXT NOT NULL DEFAULT '',
+                year INTEGER,
+                make TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                trim TEXT NOT NULL DEFAULT '',
+                body_style TEXT NOT NULL DEFAULT '',
+                price INTEGER,
+                mileage INTEGER,
+                ext_color TEXT NOT NULL DEFAULT '',
+                int_color TEXT NOT NULL DEFAULT '',
+                transmission TEXT NOT NULL DEFAULT '',
+                drivetrain TEXT NOT NULL DEFAULT '',
+                engine TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL DEFAULT '',
+                images_json TEXT NOT NULL DEFAULT '[]',
+                detail_url TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'active',
+                notes TEXT NOT NULL DEFAULT '',
+                manually_edited INTEGER NOT NULL DEFAULT 0,
+                scraped_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (dealer_id) REFERENCES dealers(id) ON DELETE CASCADE,
+                FOREIGN KEY (source_id) REFERENCES inventory_sources(id) ON DELETE SET NULL
+            );
+
             CREATE INDEX IF NOT EXISTS idx_valuations_dealer_created
                 ON valuations (dealer_id, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_market_snapshot_lookup
                 ON market_snapshots (region, make, model, year);
+            CREATE INDEX IF NOT EXISTS idx_inventory_dealer_status
+                ON inventory_vehicles (dealer_id, status);
             """
     if not postgres:
         return schema
@@ -1276,3 +1325,295 @@ def _range_counts(
         )
         rows.append({"label": label, "value": count})
     return _with_percentages(rows, max(total, 1))
+
+
+# ---------------------------------------------------------------------------
+# Inventory sources
+# ---------------------------------------------------------------------------
+
+def list_inventory_sources(db_path: Path, dealer_id: int) -> list[dict[str, Any]]:
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM inventory_sources WHERE dealer_id = ? ORDER BY created_at DESC",
+            (dealer_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_inventory_source(db_path: Path, source_id: int) -> dict[str, Any] | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM inventory_sources WHERE id = ?",
+            (source_id,),
+        ).fetchone()
+        return _row_to_dict(row)
+
+
+def create_inventory_source(db_path: Path, dealer_id: int, url: str, label: str) -> int:
+    now = utc_now()
+    with connect(db_path) as conn:
+        source_id = _insert_returning_id(
+            conn,
+            """
+            INSERT INTO inventory_sources (
+                dealer_id, url, label, auto_sync_enabled,
+                last_sync_status, created_at, updated_at
+            )
+            VALUES (?, ?, ?, 0, 'never', ?, ?)
+            """,
+            (dealer_id, url, label, now, now),
+        )
+        conn.commit()
+        return source_id
+
+
+def delete_inventory_source(db_path: Path, source_id: int) -> None:
+    with connect(db_path) as conn:
+        conn.execute(
+            "UPDATE inventory_vehicles SET source_id = NULL WHERE source_id = ?",
+            (source_id,),
+        )
+        conn.execute("DELETE FROM inventory_sources WHERE id = ?", (source_id,))
+        conn.commit()
+
+
+def update_inventory_source_sync_result(
+    db_path: Path,
+    source_id: int,
+    *,
+    count: int,
+    status: str,
+    error: str = "",
+) -> None:
+    now = utc_now()
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE inventory_sources
+            SET last_synced_at = ?,
+                last_sync_count = ?,
+                last_sync_status = ?,
+                last_sync_error = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (now, count, status, error[:1000], now, source_id),
+        )
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Inventory vehicles
+# ---------------------------------------------------------------------------
+
+_INVENTORY_UPSERT_FIELDS = [
+    "year", "make", "model", "trim", "body_style", "price", "mileage",
+    "ext_color", "int_color", "transmission", "drivetrain", "engine",
+    "description", "images_json", "detail_url", "scraped_at",
+]
+
+
+def upsert_inventory_vehicles(
+    db_path: Path,
+    dealer_id: int,
+    source_id: int | None,
+    vehicles: list[dict[str, Any]],
+    scraped_at: str,
+) -> int:
+    """Insert or update inventory vehicles from a scrape.
+
+    Matches on VIN (if 17 chars) then stock_number then external_id.
+    Vehicles that were not manually edited get their data updated.
+    Returns the number of new + updated rows.
+    """
+    now = utc_now()
+    upserted = 0
+    with connect(db_path) as conn:
+        for v in vehicles:
+            vin = str(v.get("vin", "") or "").upper().strip()
+            stock = str(v.get("stock_number", "") or "").strip()
+            ext_id = str(v.get("external_id", "") or "").strip()
+
+            existing = None
+            if len(vin) == 17:
+                existing = _row_to_dict(
+                    conn.execute(
+                        "SELECT * FROM inventory_vehicles WHERE dealer_id = ? AND vin = ?",
+                        (dealer_id, vin),
+                    ).fetchone()
+                )
+            if not existing and stock:
+                existing = _row_to_dict(
+                    conn.execute(
+                        "SELECT * FROM inventory_vehicles WHERE dealer_id = ? AND stock_number = ?",
+                        (dealer_id, stock),
+                    ).fetchone()
+                )
+            if not existing and ext_id:
+                existing = _row_to_dict(
+                    conn.execute(
+                        "SELECT * FROM inventory_vehicles WHERE dealer_id = ? AND external_id = ?",
+                        (dealer_id, ext_id),
+                    ).fetchone()
+                )
+
+            images_json = _json(v.get("images", []) if isinstance(v.get("images"), list) else [])
+
+            if existing is None:
+                _insert_returning_id(
+                    conn,
+                    """
+                    INSERT INTO inventory_vehicles (
+                        dealer_id, source_id, external_id, vin, stock_number,
+                        year, make, model, trim, body_style, price, mileage,
+                        ext_color, int_color, transmission, drivetrain, engine,
+                        description, images_json, detail_url,
+                        status, notes, manually_edited, scraped_at, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', '', 0, ?, ?, ?)
+                    """,
+                    (
+                        dealer_id, source_id,
+                        ext_id, vin, stock,
+                        v.get("year"), v.get("make", ""), v.get("model", ""),
+                        v.get("trim", ""), v.get("body_style", ""),
+                        v.get("price"), v.get("mileage"),
+                        v.get("ext_color", ""), v.get("int_color", ""),
+                        v.get("transmission", ""), v.get("drivetrain", ""),
+                        v.get("engine", ""), v.get("description", ""),
+                        images_json, v.get("detail_url", ""),
+                        scraped_at, now, now,
+                    ),
+                )
+                upserted += 1
+            elif not existing.get("manually_edited"):
+                conn.execute(
+                    """
+                    UPDATE inventory_vehicles
+                    SET year = ?, make = ?, model = ?, trim = ?, body_style = ?,
+                        price = ?, mileage = ?, ext_color = ?, int_color = ?,
+                        transmission = ?, drivetrain = ?, engine = ?,
+                        description = ?, images_json = ?, detail_url = ?,
+                        status = 'active', scraped_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        v.get("year"), v.get("make", ""), v.get("model", ""),
+                        v.get("trim", ""), v.get("body_style", ""),
+                        v.get("price"), v.get("mileage"),
+                        v.get("ext_color", ""), v.get("int_color", ""),
+                        v.get("transmission", ""), v.get("drivetrain", ""),
+                        v.get("engine", ""), v.get("description", ""),
+                        images_json, v.get("detail_url", ""),
+                        scraped_at, now, existing["id"],
+                    ),
+                )
+                upserted += 1
+        conn.commit()
+    return upserted
+
+
+def list_inventory_vehicles(
+    db_path: Path,
+    dealer_id: int,
+    *,
+    status: str = "active",
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    with connect(db_path) as conn:
+        if status == "all":
+            rows = conn.execute(
+                """
+                SELECT iv.*, isrc.url AS source_url, isrc.label AS source_label
+                FROM inventory_vehicles iv
+                LEFT JOIN inventory_sources isrc ON isrc.id = iv.source_id
+                WHERE iv.dealer_id = ?
+                ORDER BY iv.year DESC, iv.make, iv.model
+                LIMIT ? OFFSET ?
+                """,
+                (dealer_id, limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT iv.*, isrc.url AS source_url, isrc.label AS source_label
+                FROM inventory_vehicles iv
+                LEFT JOIN inventory_sources isrc ON isrc.id = iv.source_id
+                WHERE iv.dealer_id = ? AND iv.status = ?
+                ORDER BY iv.year DESC, iv.make, iv.model
+                LIMIT ? OFFSET ?
+                """,
+                (dealer_id, status, limit, offset),
+            ).fetchall()
+        result = []
+        for row in rows:
+            d = dict(row)
+            try:
+                d["images"] = json.loads(d.get("images_json") or "[]")
+            except Exception:
+                d["images"] = []
+            result.append(d)
+        return result
+
+
+def get_inventory_vehicle(db_path: Path, vehicle_id: int) -> dict[str, Any] | None:
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM inventory_vehicles WHERE id = ?",
+            (vehicle_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        try:
+            d["images"] = json.loads(d.get("images_json") or "[]")
+        except Exception:
+            d["images"] = []
+        return d
+
+
+def update_inventory_vehicle(
+    db_path: Path,
+    vehicle_id: int,
+    fields: dict[str, Any],
+) -> None:
+    allowed = {
+        "year", "make", "model", "trim", "body_style", "price", "mileage",
+        "ext_color", "int_color", "transmission", "drivetrain", "engine",
+        "description", "detail_url", "status", "notes", "images_json",
+    }
+    sanitized = {k: v for k, v in fields.items() if k in allowed}
+    if not sanitized:
+        return
+    sanitized["manually_edited"] = 1
+    sanitized["updated_at"] = utc_now()
+    set_clause = ", ".join(f"{k} = ?" for k in sanitized)
+    values = list(sanitized.values()) + [vehicle_id]
+    with connect(db_path) as conn:
+        conn.execute(
+            f"UPDATE inventory_vehicles SET {set_clause} WHERE id = ?",
+            values,
+        )
+        conn.commit()
+
+
+def delete_inventory_vehicle(db_path: Path, vehicle_id: int) -> None:
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM inventory_vehicles WHERE id = ?", (vehicle_id,))
+        conn.commit()
+
+
+def count_inventory_vehicles(db_path: Path, dealer_id: int, status: str = "active") -> int:
+    with connect(db_path) as conn:
+        if status == "all":
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM inventory_vehicles WHERE dealer_id = ?",
+                (dealer_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM inventory_vehicles WHERE dealer_id = ? AND status = ?",
+                (dealer_id, status),
+            ).fetchone()
+        return int((row or {}).get("cnt") or 0)
