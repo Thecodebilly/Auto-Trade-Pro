@@ -786,7 +786,7 @@ _TS_ADAPTER_RE = re.compile(
 )
 _TS_API_KEY_RE = re.compile(r'apiKey\s*:\s*["\']([^"\']{8,})["\']')
 _TS_HOST_RE = re.compile(r'host\s*:\s*["\']([a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,})["\']')
-_TS_PORT_RE = re.compile(r'port\s*:\s*(\d+)')
+_TS_PORT_RE = re.compile(r"port\s*:\s*(\d+)")
 _TS_PROTOCOL_RE = re.compile(r'protocol\s*:\s*["\']([a-z]+)["\']')
 _TS_INDEX_RE = re.compile(r'var\s+indexName\s*=\s*["\']([^"\']+)["\']')
 _TS_CONDITION_RE = re.compile(r'var\s+srpCondition\s*=\s*["\']([^"\']+)["\']')
@@ -893,7 +893,9 @@ def _fetch_typesense_all(
             params["filter_by"] = f"condition:={condition_filter}"
 
         try:
-            resp = requests.get(base_api, headers=headers, params=params, timeout=SCRAPE_TIMEOUT)
+            resp = requests.get(
+                base_api, headers=headers, params=params, timeout=SCRAPE_TIMEOUT
+            )
             resp.raise_for_status()
             data = resp.json()
         except requests.RequestException as exc:
@@ -930,16 +932,28 @@ def _map_typesense_doc(doc: dict[str, Any], base_url: str) -> dict[str, Any] | N
     v["make"] = str(doc.get("make", "") or "").strip().upper()
     v["model"] = str(doc.get("model", "") or "").strip().upper()
     v["trim"] = str(doc.get("trim", "") or "").strip()
-    v["body_style"] = str(doc.get("body", "") or doc.get("compoundBody", "") or "").strip()
+    v["body_style"] = str(
+        doc.get("body", "") or doc.get("compoundBody", "") or ""
+    ).strip()
     v["ext_color"] = str(doc.get("exteriorColor", "") or "").strip()
     v["int_color"] = str(doc.get("interiorColor", "") or "").strip()
-    v["transmission"] = str(doc.get("transmission", "") or doc.get("transmissionType", "") or "").strip()
+    v["transmission"] = str(
+        doc.get("transmission", "") or doc.get("transmissionType", "") or ""
+    ).strip()
     v["drivetrain"] = str(doc.get("drivetrain", "") or "").strip()
     v["engine"] = str(doc.get("engine", "") or "").strip()
     v["mileage"] = _int_or_none(doc.get("mileage"))
 
     # Price: prefer internetPrice → finalPrice → price → msrp
-    for price_field in ("internetPrice", "finalPriceInt", "finalPrice", "advertisedPrice", "price", "msrp", "sellingPrice"):
+    for price_field in (
+        "internetPrice",
+        "finalPriceInt",
+        "finalPrice",
+        "advertisedPrice",
+        "price",
+        "msrp",
+        "sellingPrice",
+    ):
         raw = doc.get(price_field)
         if raw:
             p = _int_or_none(str(raw).replace("$", "").replace(",", ""))
