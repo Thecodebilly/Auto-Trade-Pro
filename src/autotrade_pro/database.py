@@ -25,6 +25,12 @@ except ImportError:  # pragma: no cover - exercised only in Postgres deployments
     dict_row = None
 
 
+DEFAULT_INVENTORY_SOURCES: tuple[tuple[str, str], ...] = (
+    ("https://www.erdmanautomotive.com/new-vehicles/", "Erdman new inventory"),
+    ("https://www.erdmanautomotive.com/used-vehicles/", "Erdman used inventory"),
+)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -747,35 +753,8 @@ def seed_demo_data(db_path: Path, default_slug: str = "south-florida-demo") -> N
                 ],
             )
 
-        active_inventory_count = conn.execute(
-            """
-            SELECT COUNT(*) AS count
-            FROM inventory_vehicles
-            WHERE dealer_id = ? AND status = 'active'
-            """,
-            (dealer_id,),
-        ).fetchone()["count"]
-        showroom_inventory_source = conn.execute(
-            """
-            SELECT id
-            FROM inventory_sources
-            WHERE dealer_id = ?
-              AND url IN (
-                  'demo://south-florida-inventory',
-                  'inventory://south-florida-showroom'
-              )
-            ORDER BY CASE
-                WHEN url = 'inventory://south-florida-showroom' THEN 0
-                ELSE 1
-            END
-            LIMIT 1
-            """,
-            (dealer_id,),
-        ).fetchone()
-        if showroom_inventory_source is not None:
-            _sync_showroom_inventory(conn, dealer_id, showroom_inventory_source["id"], now)
-        elif active_inventory_count == 0:
-            _seed_showroom_inventory(conn, dealer_id, now)
+        _remove_internal_inventory(conn, dealer_id)
+        _ensure_default_inventory_sources(conn, dealer_id, now)
         conn.commit()
 
 
@@ -830,427 +809,73 @@ def _seed_dealer(conn: Any, default_slug: str, now: str) -> int:
     return int(row["id"])
 
 
-def _seed_showroom_inventory(conn: Any, dealer_id: int, now: str) -> None:
-    source_id = _insert_returning_id(
-        conn,
+def _remove_internal_inventory(conn: Any, dealer_id: int) -> None:
+    legacy_sources = conn.execute(
         """
-        INSERT INTO inventory_sources (
-            dealer_id, url, label, auto_sync_enabled,
-            last_synced_at, last_sync_count, last_sync_status,
-            created_at, updated_at
-        )
-        VALUES (?, ?, ?, 0, ?, 8, 'success', ?, ?)
+        SELECT id
+        FROM inventory_sources
+        WHERE dealer_id = ?
+          AND (url LIKE 'demo://%' OR url LIKE 'inventory://%')
         """,
-        (
-            dealer_id,
-            "inventory://south-florida-showroom",
-            "Showroom inventory",
-            now,
-            now,
-            now,
-        ),
-    )
-    _insert_showroom_inventory_rows(conn, dealer_id, source_id, now)
-
-
-def _showroom_inventory_vehicles() -> list[tuple[Any, ...]]:
-    image_sets = {
-        "rav4": [
-            _commons_image("Toyota RAV4 XLE (facelift) (front).jpg"),
-            _commons_image(
-                "2022 Toyota RAV4 Hybrid LE in Midnight Black Metallic, front left.jpg"
-            ),
-        ],
-        "crv": [
-            _commons_image("2023 Honda CR-V EX-L AWD, front right.jpg"),
-            _commons_image(
-                "2023 Honda CR-V EX AWD in Lunar Silver Metallic, front left.jpg"
-            ),
-        ],
-        "f150": [
-            _commons_image("2024 Ford F-150 XLT front view.jpg"),
-            _commons_image(
-                "2019 Ford F-150 XLT Sport Package & Special Edition Package 4x4 "
-                "Supercrew 5.5' Box in Oxford White, Front Left, 2023-11-12.jpg"
-            ),
-        ],
-        "silverado": [
-            _commons_image("2023 Chevrolet Silverado LT front view.jpg"),
-            _commons_image(
-                "2022 Chevrolet Silverado 1500 LT in Summit White, Front Left, "
-                "06-26-2022.jpg"
-            ),
-        ],
-        "camry": [
-            _commons_image("Toyota Camry (XV70) SE (2), United States.jpg"),
-            _commons_image("Toyota Camry Hybrid (XV70).jpg"),
-        ],
-        "altima": [
-            _commons_image("2022 Nissan Altima SV, front left, 05-03-2023.jpg"),
-            _commons_image("2019 Nissan Altima front 12.24.18.jpg"),
-        ],
-        "sonata": [
-            _commons_image("Hyundai Sonata SEL (2020) (53487041574).jpg"),
-            _commons_image("00 Hyundai Sonata (DN8).jpg"),
-        ],
-        "bmw": [
-            _commons_image("BMW 3-Series (G20) 330i (2023) (53490165475).jpg"),
-            _commons_image("BMW 330i (G20, 2019) (52715226722).jpg"),
-        ],
-    }
-    source_links = {
-        "rav4": "",
-        "crv": "",
-        "f150": "",
-        "silverado": "",
-        "camry": "",
-        "altima": "",
-        "sonata": "",
-        "bmw": "",
-    }
-    return [
-        (
-            "inventory-rav4-hybrid",
-            "ATP1001",
-            2024,
-            "TOYOTA",
-            "RAV4",
-            "XLE Hybrid",
-            "SUV",
-            34250,
-            12,
-            "Ice Cap",
-            "Black",
-            "CVT",
-            "AWD",
-            "2.5L Hybrid",
-            "New hybrid SUV with safety tech, power liftgate, and all-weather utility.",
-            image_sets["rav4"],
-            source_links["rav4"],
-        ),
-        (
-            "inventory-crv-hybrid",
-            "ATP1002",
-            2024,
-            "HONDA",
-            "CR-V",
-            "Sport-L Hybrid",
-            "SUV",
-            36580,
-            18,
-            "Urban Gray",
-            "Black",
-            "CVT",
-            "AWD",
-            "2.0L Hybrid",
-            "New compact hybrid SUV with leather-trimmed cabin and driver assistance.",
-            image_sets["crv"],
-            source_links["crv"],
-        ),
-        (
-            "inventory-f150-xlt",
-            "ATP1003",
-            2023,
-            "FORD",
-            "F-150",
-            "XLT SuperCrew",
-            "Pickup",
-            43890,
-            9120,
-            "Oxford White",
-            "Medium Dark Slate",
-            "10-Speed Automatic",
-            "4WD",
-            "2.7L EcoBoost",
-            "Certified pickup with crew cab space, tow equipment, and bed liner.",
-            image_sets["f150"],
-            source_links["f150"],
-        ),
-        (
-            "inventory-silverado-lt",
-            "ATP1004",
-            2024,
-            "CHEVROLET",
-            "SILVERADO 1500",
-            "LT",
-            "Pickup",
-            46950,
-            24,
-            "Summit White",
-            "Jet Black",
-            "10-Speed Automatic",
-            "4WD",
-            "5.3L V8",
-            "New full-size truck with crew cab comfort and trailering package.",
-            image_sets["silverado"],
-            source_links["silverado"],
-        ),
-        (
-            "inventory-camry-se",
-            "ATP1005",
-            2023,
-            "TOYOTA",
-            "CAMRY",
-            "SE",
-            "Sedan",
-            26940,
-            8420,
-            "Celestial Silver",
-            "Black",
-            "8-Speed Automatic",
-            "FWD",
-            "2.5L I4",
-            "Low-mile sedan with sport trim, adaptive cruise, and excellent efficiency.",
-            image_sets["camry"],
-            source_links["camry"],
-        ),
-        (
-            "inventory-altima-sv",
-            "ATP1006",
-            2024,
-            "NISSAN",
-            "ALTIMA",
-            "SV",
-            "Sedan",
-            27880,
-            15,
-            "Gun Metallic",
-            "Charcoal",
-            "CVT",
-            "FWD",
-            "2.5L I4",
-            "New midsize sedan with connected tech and advanced safety features.",
-            image_sets["altima"],
-            source_links["altima"],
-        ),
-        (
-            "inventory-sonata-sel",
-            "ATP1007",
-            2023,
-            "HYUNDAI",
-            "SONATA",
-            "SEL",
-            "Sedan",
-            24450,
-            10480,
-            "Portofino Gray",
-            "Dark Gray",
-            "8-Speed Automatic",
-            "FWD",
-            "2.5L I4",
-            "Well-equipped sedan with heated seats, blind-spot monitoring, and warranty.",
-            image_sets["sonata"],
-            source_links["sonata"],
-        ),
-        (
-            "inventory-330i",
-            "ATP1008",
-            2022,
-            "BMW",
-            "3 SERIES",
-            "330i",
-            "Sedan",
-            31900,
-            28650,
-            "Alpine White",
-            "Cognac",
-            "8-Speed Automatic",
-            "RWD",
-            "2.0L Turbo",
-            "Premium sport sedan with navigation, sunroof, and driver assistance.",
-            image_sets["bmw"],
-            source_links["bmw"],
-        ),
-    ]
-
-
-def _commons_image(filename: str) -> str:
-    return (
-        "https://commons.wikimedia.org/wiki/Special:Redirect/file/"
-        f"{quote(filename, safe='')}?width=900"
-    )
-
-def _insert_showroom_inventory_rows(
-    conn: Any, dealer_id: int, source_id: int, now: str
-) -> None:
-    vehicles = _showroom_inventory_vehicles()
-    conn.executemany(
-        """
-        INSERT INTO inventory_vehicles (
-            dealer_id, source_id, external_id, vin, stock_number,
-            year, make, model, trim, body_style, price, mileage,
-            ext_color, int_color, transmission, drivetrain, engine,
-            description, images_json, detail_url,
-            status, notes, manually_edited, scraped_at, created_at, updated_at
+        (dealer_id,),
+    ).fetchall()
+    source_ids = [row["id"] for row in legacy_sources]
+    if source_ids:
+        placeholders = ", ".join("?" for _ in source_ids)
+        conn.execute(
+            f"""
+            DELETE FROM inventory_vehicles
+            WHERE dealer_id = ? AND source_id IN ({placeholders})
+            """,
+            (dealer_id, *source_ids),
         )
-        VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                'active', 'Showroom inventory', 0, ?, ?, ?)
-        """,
-        [
-            (
-                dealer_id,
-                source_id,
-                external_id,
-                stock_number,
-                year,
-                make,
-                model,
-                trim,
-                body_style,
-                price,
-                mileage,
-                ext_color,
-                int_color,
-                transmission,
-                drivetrain,
-                engine,
-                description,
-                _json(images),
-                detail_url,
-                now,
-                now,
-                now,
-            )
-            for (
-                external_id,
-                stock_number,
-                year,
-                make,
-                model,
-                trim,
-                body_style,
-                price,
-                mileage,
-                ext_color,
-                int_color,
-                transmission,
-                drivetrain,
-                engine,
-                description,
-                images,
-                detail_url,
-            ) in vehicles
-        ],
-    )
+        conn.execute(
+            f"""
+            DELETE FROM inventory_sources
+            WHERE dealer_id = ? AND id IN ({placeholders})
+            """,
+            (dealer_id, *source_ids),
+        )
 
-
-def _sync_showroom_inventory(conn: Any, dealer_id: int, source_id: int, now: str) -> None:
     conn.execute(
         """
-        UPDATE inventory_sources
-        SET url = 'inventory://south-florida-showroom',
-            label = 'Showroom inventory',
-            last_synced_at = ?,
-            last_sync_count = 8,
-            last_sync_status = 'success',
-            last_sync_error = '',
-            updated_at = ?
-        WHERE id = ?
+        DELETE FROM inventory_vehicles
+        WHERE dealer_id = ?
+          AND stock_number IN (
+              'ATP1001', 'ATP1002', 'ATP1003', 'ATP1004',
+              'ATP1005', 'ATP1006', 'ATP1007', 'ATP1008'
+          )
+          AND (
+              external_id LIKE 'demo-%'
+              OR external_id LIKE 'inventory-%'
+              OR notes IN ('Seeded demo inventory', 'Showroom inventory')
+          )
         """,
-        (now, now, source_id),
+        (dealer_id,),
     )
-    for (
-        external_id,
-        stock_number,
-        year,
-        make,
-        model,
-        trim,
-        body_style,
-        price,
-        mileage,
-        ext_color,
-        int_color,
-        transmission,
-        drivetrain,
-        engine,
-        description,
-        images,
-        detail_url,
-    ) in _showroom_inventory_vehicles():
+
+
+def _ensure_default_inventory_sources(conn: Any, dealer_id: int, now: str) -> None:
+    for url, label in DEFAULT_INVENTORY_SOURCES:
         existing = conn.execute(
             """
-            SELECT id, manually_edited
-            FROM inventory_vehicles
-            WHERE dealer_id = ? AND stock_number = ?
+            SELECT id
+            FROM inventory_sources
+            WHERE dealer_id = ? AND url = ?
             """,
-            (dealer_id, stock_number),
+            (dealer_id, url),
         ).fetchone()
-        if existing is None:
-            _insert_returning_id(
-                conn,
-                """
-                INSERT INTO inventory_vehicles (
-                    dealer_id, source_id, external_id, vin, stock_number,
-                    year, make, model, trim, body_style, price, mileage,
-                    ext_color, int_color, transmission, drivetrain, engine,
-                    description, images_json, detail_url,
-                    status, notes, manually_edited, scraped_at, created_at, updated_at
-                )
-                VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        'active', 'Showroom inventory', 0, ?, ?, ?)
-                """,
-                (
-                    dealer_id,
-                    source_id,
-                    external_id,
-                    stock_number,
-                    year,
-                    make,
-                    model,
-                    trim,
-                    body_style,
-                    price,
-                    mileage,
-                    ext_color,
-                    int_color,
-                    transmission,
-                    drivetrain,
-                    engine,
-                    description,
-                    _json(images),
-                    detail_url,
-                    now,
-                    now,
-                    now,
-                ),
-            )
-            continue
-        if int(existing["manually_edited"] or 0):
+        if existing is not None:
             continue
         conn.execute(
             """
-            UPDATE inventory_vehicles
-            SET source_id = ?, external_id = ?, year = ?, make = ?, model = ?,
-                trim = ?, body_style = ?, price = ?, mileage = ?,
-                ext_color = ?, int_color = ?, transmission = ?, drivetrain = ?,
-                engine = ?, description = ?, images_json = ?, detail_url = ?,
-                status = 'active',
-                notes = 'Showroom inventory', scraped_at = ?, updated_at = ?
-            WHERE id = ?
+            INSERT INTO inventory_sources (
+                dealer_id, url, label, auto_sync_enabled,
+                last_sync_status, created_at, updated_at
+            )
+            VALUES (?, ?, ?, 0, 'never', ?, ?)
             """,
-            (
-                source_id,
-                external_id,
-                year,
-                make,
-                model,
-                trim,
-                body_style,
-                price,
-                mileage,
-                ext_color,
-                int_color,
-                transmission,
-                drivetrain,
-                engine,
-                description,
-                _json(images),
-                detail_url,
-                now,
-                now,
-                existing["id"],
-            ),
+            (dealer_id, url, label, now, now),
         )
 
 
@@ -2044,6 +1669,38 @@ def update_inventory_source_sync_result(
 # Inventory vehicles
 # ---------------------------------------------------------------------------
 
+_INVENTORY_REAL_IMAGE_MARKERS = (
+    "common-vehicle-media",
+    "assets.cai-media-management.com",
+    "vehicle-media",
+)
+_INVENTORY_RENDER_IMAGE_MARKERS = (
+    "jellies",
+    "media.dealeralchemist.com",
+)
+_INVENTORY_IMAGE_ORDER_SQL = """
+    CASE
+        WHEN LOWER(iv.images_json) LIKE ?
+          OR LOWER(iv.images_json) LIKE ?
+          OR LOWER(iv.images_json) LIKE ?
+        THEN 0
+        WHEN LOWER(iv.images_json) LIKE ?
+          OR LOWER(iv.images_json) LIKE ?
+        THEN 1
+        WHEN iv.images_json NOT IN ('', '[]')
+        THEN 2
+        ELSE 3
+    END
+"""
+
+
+def _inventory_image_order_params() -> tuple[str, ...]:
+    return tuple(
+        f"%{marker}%"
+        for marker in (*_INVENTORY_REAL_IMAGE_MARKERS, *_INVENTORY_RENDER_IMAGE_MARKERS)
+    )
+
+
 _INVENTORY_UPSERT_FIELDS = [
     "year",
     "make",
@@ -2205,10 +1862,12 @@ def list_inventory_vehicles(
                 FROM inventory_vehicles iv
                 LEFT JOIN inventory_sources isrc ON isrc.id = iv.source_id
                 WHERE iv.dealer_id = ?
-                ORDER BY iv.year DESC, iv.make, iv.model
+                ORDER BY
+                    {_INVENTORY_IMAGE_ORDER_SQL},
+                    iv.year DESC, iv.make, iv.model
                 LIMIT ? OFFSET ?
-                """,
-                (dealer_id, limit, offset),
+                """.format(_INVENTORY_IMAGE_ORDER_SQL=_INVENTORY_IMAGE_ORDER_SQL),
+                (dealer_id, *_inventory_image_order_params(), limit, offset),
             ).fetchall()
         else:
             rows = conn.execute(
@@ -2217,10 +1876,12 @@ def list_inventory_vehicles(
                 FROM inventory_vehicles iv
                 LEFT JOIN inventory_sources isrc ON isrc.id = iv.source_id
                 WHERE iv.dealer_id = ? AND iv.status = ?
-                ORDER BY iv.year DESC, iv.make, iv.model
+                ORDER BY
+                    {_INVENTORY_IMAGE_ORDER_SQL},
+                    iv.year DESC, iv.make, iv.model
                 LIMIT ? OFFSET ?
-                """,
-                (dealer_id, status, limit, offset),
+                """.format(_INVENTORY_IMAGE_ORDER_SQL=_INVENTORY_IMAGE_ORDER_SQL),
+                (dealer_id, status, *_inventory_image_order_params(), limit, offset),
             ).fetchall()
         result = []
         for row in rows:

@@ -535,98 +535,176 @@
       .deal-thumb, .deal-thumb-placeholder { width: 74px; height: 58px; }
     }
     /* --- Inventory section --- */
+    #inventorySection {
+      background:
+        linear-gradient(180deg, #f6f9fb 0%, #edf3f7 100%);
+      border-top: 1px solid rgba(216,224,231,.9);
+      padding: 44px 0 66px;
+    }
     .inventory-section {
       width: min(1180px, calc(100% - 32px));
-      margin: 0 auto 56px;
+      margin: 0 auto;
     }
     .inventory-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 14px;
+      gap: 18px;
       flex-wrap: wrap;
-      margin-bottom: 18px;
+      margin-bottom: 16px;
     }
+    .inventory-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-height: 30px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: #e7eef3;
+      color: var(--primary);
+      font-size: 12px;
+      font-weight: 850;
+      margin-bottom: 10px;
+    }
+    .inventory-kicker svg { width: 15px; height: 15px; }
     .inventory-header h2 {
       margin: 0;
-      font-size: 28px;
-      color: #fff;
+      font-size: 30px;
+      line-height: 1.1;
+      color: var(--ink);
     }
     .inventory-header p {
-      margin: 4px 0 0;
-      color: rgba(255,255,255,.8);
+      margin: 6px 0 0;
+      color: var(--muted);
       font-size: 15px;
     }
     .inv-filter-bar {
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(230px, 1.3fr) repeat(2, minmax(150px, .8fr));
       gap: 10px;
-      flex-wrap: wrap;
       align-items: center;
+      width: min(100%, 690px);
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255,255,255,.92);
+      box-shadow: 0 14px 34px rgba(23,33,43,.08);
     }
     .inv-filter-bar input, .inv-filter-bar select {
-      min-height: 40px;
-      padding: 8px 11px;
+      min-height: 42px;
+      padding: 9px 12px;
       border-radius: 6px;
       border: 1px solid var(--line);
-      background: rgba(255,255,255,.95);
+      background: #fff;
       color: var(--ink);
       font-size: 14px;
-      min-width: 140px;
+      min-width: 0;
     }
     .inv-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 18px;
+      gap: 16px;
     }
     .inv-card {
-      background: rgba(255,255,255,.96);
+      background: #fff;
       border-radius: 8px;
       overflow: hidden;
-      box-shadow: 0 8px 24px rgba(12,24,35,.14);
-      border: 1px solid rgba(255,255,255,.6);
-      transition: transform .16s, box-shadow .16s;
+      box-shadow: 0 12px 30px rgba(23,33,43,.09);
+      border: 1px solid #dce5ec;
+      transition: transform .16s, box-shadow .16s, border-color .16s;
     }
-    .inv-card:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(12,24,35,.2); }
-    .inv-card.selected { border-color: var(--accent); box-shadow: 0 14px 36px rgba(12,24,35,.22); }
+    .inv-card:hover { transform: translateY(-2px); border-color: #c7d5df; box-shadow: 0 18px 44px rgba(23,33,43,.14); }
+    .inv-card.selected { border-color: var(--accent); box-shadow: 0 18px 44px rgba(23,33,43,.16); }
+    .inv-media {
+      position: relative;
+      overflow: hidden;
+      background: #d9e2ea;
+    }
+    .inv-card-badge {
+      position: absolute;
+      left: 10px;
+      top: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      max-width: calc(100% - 20px);
+      min-height: 28px;
+      padding: 5px 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.92);
+      color: #263441;
+      font-size: 12px;
+      font-weight: 850;
+      box-shadow: 0 8px 18px rgba(23,33,43,.12);
+      backdrop-filter: blur(8px);
+    }
     .inv-thumb {
       width: 100%;
-      height: 170px;
+      height: 190px;
       object-fit: cover;
       display: block;
       background: #d6dfe8;
+      cursor: pointer;
     }
     .inv-thumb-placeholder {
       width: 100%;
-      height: 170px;
+      height: 190px;
       background: linear-gradient(135deg, #dde4ec 0%, #c8d2dd 100%);
       display: flex;
       align-items: center;
       justify-content: center;
       color: #7a8fa0;
       font-size: 38px;
+      cursor: pointer;
     }
-    .inv-body { padding: 14px; }
-    .inv-title { font-weight: 800; font-size: 16px; margin: 0 0 4px; line-height: 1.2; }
-    .inv-meta { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
-    .inv-price { font-size: 22px; font-weight: 900; color: var(--primary); }
-    .inv-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .inv-body { padding: 15px; }
+    .inv-title { font-weight: 850; font-size: 16px; margin: 0 0 6px; line-height: 1.22; min-height: 40px; }
+    .inv-meta { color: var(--muted); font-size: 13px; margin-bottom: 12px; min-height: 19px; }
+    .inv-price { font-size: 23px; font-weight: 900; color: var(--primary); display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+    .inv-net {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: #eff9f4;
+      color: var(--good);
+      font-size: 12px;
+      font-weight: 850;
+    }
+    .inv-actions {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 14px;
+    }
     .inv-actions a, .inv-actions button {
-      flex: 1;
       min-height: 38px;
       border-radius: 6px;
       border: 0;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 800;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
+      gap: 6px;
       text-decoration: none;
+      white-space: nowrap;
     }
-    .inv-btn-primary { background: var(--primary); color: #fff; }
-    .inv-btn-secondary { background: #e7eef3; color: var(--primary); }
-    .inv-empty { text-align: center; color: rgba(255,255,255,.7); padding: 36px 0; font-size: 16px; }
-    .inv-load-more { display: flex; justify-content: center; margin-top: 22px; }
+    .inv-actions svg { width: 15px; height: 15px; flex: none; }
+    .inv-btn-primary { grid-column: 1 / -1; background: var(--primary); color: #fff; box-shadow: 0 10px 18px rgba(24,78,119,.18); }
+    .inv-btn-secondary { background: #e9f0f5; color: var(--primary); }
+    .inv-empty {
+      text-align: center;
+      color: var(--muted);
+      padding: 42px 0;
+      font-size: 16px;
+      background: rgba(255,255,255,.72);
+      border: 1px dashed #c7d5df;
+      border-radius: 8px;
+    }
+    .inv-load-more { display: flex; justify-content: center; margin-top: 24px; }
     .inventory-modal {
       position: fixed;
       inset: 0;
@@ -634,11 +712,12 @@
       display: grid;
       place-items: center;
       padding: 18px;
-      background: rgba(9, 18, 28, .68);
+      background: rgba(9, 18, 28, .72);
+      backdrop-filter: blur(6px);
     }
     .inventory-modal[hidden] { display: none; }
     .inventory-dialog {
-      width: min(1040px, 100%);
+      width: min(1080px, 100%);
       max-height: min(840px, calc(100vh - 36px));
       overflow: auto;
       border-radius: 8px;
@@ -651,33 +730,40 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 16px 18px;
+      padding: 18px 20px;
       border-bottom: 1px solid var(--line);
+      background: #fbfdfe;
     }
-    .inventory-dialog-head h2 { margin: 0; font-size: 22px; line-height: 1.2; }
+    .inventory-dialog-head h2 { margin: 0; font-size: 24px; line-height: 1.15; }
     .inventory-dialog-body {
       display: grid;
-      grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr);
+      grid-template-columns: minmax(0, 1.22fr) minmax(310px, .78fr);
       gap: 18px;
-      padding: 18px;
+      padding: 20px;
     }
+    .inventory-dialog-body > div { min-width: 0; }
     .inventory-photo-stage {
       position: relative;
-      min-height: 360px;
+      width: 100%;
+      max-width: 100%;
+      aspect-ratio: 4 / 3;
+      min-height: 0;
       border-radius: 8px;
       overflow: hidden;
-      background: #d6dfe8;
+      background: #f5f8fa;
       border: 1px solid var(--line);
     }
     .inventory-photo-stage img {
       width: 100%;
+      max-width: 100%;
       height: 100%;
-      min-height: 360px;
-      object-fit: cover;
+      min-height: 0;
+      object-fit: contain;
       display: block;
+      background: #f5f8fa;
     }
     .inventory-photo-empty {
-      min-height: 360px;
+      height: 100%;
       display: grid;
       place-items: center;
       color: #6f8292;
@@ -704,14 +790,18 @@
       border: 1px solid rgba(255,255,255,.32);
       box-shadow: none;
     }
+    .inventory-photo-nav button:hover { background: rgba(12, 24, 35, .78); }
     .inventory-thumbs {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+      display: flex;
       gap: 8px;
       margin-top: 10px;
+      overflow-x: auto;
+      padding-bottom: 2px;
     }
     .inventory-thumb-btn {
-      min-height: 58px;
+      flex: 0 0 72px;
+      width: 72px;
+      min-height: 62px;
       padding: 0;
       border-radius: 6px;
       border: 2px solid transparent;
@@ -719,24 +809,54 @@
       background: #e7eef3;
       box-shadow: none;
     }
-    .inventory-thumb-btn.active { border-color: var(--primary); }
-    .inventory-thumb-btn img { width: 100%; height: 58px; object-fit: cover; display: block; }
+    .inventory-thumb-btn.active { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(24,78,119,.12); }
+    .inventory-thumb-btn img { width: 100%; height: 62px; object-fit: cover; display: block; }
     .inventory-detail-panel { display: grid; gap: 14px; align-content: start; }
-    .inventory-detail-price { font-size: 34px; line-height: 1; color: var(--primary); font-weight: 900; }
+    .inventory-detail-price { font-size: 38px; line-height: .95; color: var(--primary); font-weight: 900; letter-spacing: 0; }
+    .inventory-detail-copy {
+      color: #344351;
+      line-height: 1.55;
+      margin: 0;
+      padding-bottom: 2px;
+    }
     .inventory-spec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .inventory-modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .inventory-link-button {
+      text-decoration: none;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-radius: 6px;
+    }
     .inventory-vehicle-nav {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      padding: 0 18px 18px;
+      padding: 0 20px 20px;
     }
-    .inventory-position { color: var(--muted); font-weight: 800; font-size: 13px; }
-    @media (max-width: 720px) {
+    .inventory-position {
+      color: var(--muted);
+      font-weight: 850;
+      font-size: 13px;
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #f7fafb;
+    }
+    @media (max-width: 980px) {
       .inv-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+      .inventory-header { align-items: flex-start; }
+      .inv-filter-bar { grid-template-columns: 1fr; width: 100%; }
+      .inv-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .inventory-dialog-body { grid-template-columns: 1fr; }
-      .inventory-photo-stage, .inventory-photo-stage img, .inventory-photo-empty { min-height: 250px; }
       .inventory-spec-grid { grid-template-columns: 1fr; }
       .inventory-vehicle-nav { flex-direction: column; align-items: stretch; }
     }
@@ -1000,6 +1120,7 @@
     <div class="inventory-section">
       <div class="inventory-header">
         <div>
+          <div class="inventory-kicker"><i data-lucide="car-front"></i><span id="invCount">Inventory</span></div>
           <h2>Browse Available Inventory</h2>
           <p>Put your trade-in value toward one of these vehicles</p>
         </div>
@@ -1103,17 +1224,24 @@
       detailImageIndex: 0,
     };
 
-    async function loadInventory() {
-      if (inv.loaded) return;
+    async function loadInventory(force = false) {
+      if (inv.loaded && !force) return;
       inv.loaded = true;
+      updateInventoryCount("Loading");
+      document.getElementById("invGrid").innerHTML =
+        `<div class="inv-empty" style="grid-column:1/-1;">Fetching inventory from the dealer website...</div>`;
       try {
         const slug = window.AUTOTRADE.dealer.slug;
-        const resp = await fetch(`/api/dealers/${slug}/inventory?limit=200`);
+        const resp = await fetch(`/api/dealers/${slug}/inventory/refresh?limit=5000`, {
+          method: "POST"
+        });
         const data = await resp.json();
+        if (!resp.ok || !data.ok) throw new Error(data.error || "Inventory website fetch failed.");
         inv.all = (data.vehicles || []);
-        // Populate body-style filter
+        // Populate body-style filter from the latest website fetch.
         const styles = [...new Set(inv.all.map(v => v.body_style).filter(Boolean))].sort();
         const sel = document.getElementById("invBodyStyle");
+        sel.innerHTML = `<option value="">Any body style</option>`;
         styles.forEach(s => {
           const opt = document.createElement("option");
           opt.value = s;
@@ -1122,8 +1250,28 @@
         });
         filterInventory();
       } catch (err) {
+        inv.loaded = false;
+        updateInventoryCount("Inventory");
         document.getElementById("invGrid").innerHTML =
-          `<div class="inv-empty" style="grid-column:1/-1;">Could not load inventory.</div>`;
+          `<div class="inv-empty" style="grid-column:1/-1;">${escapeHtml(err.message || "Could not fetch inventory from the dealer website.")}</div>`;
+      }
+    }
+
+    function updateInventoryCount(label = "") {
+      const count = document.getElementById("invCount");
+      if (!count) return;
+      if (label) {
+        count.textContent = label;
+        return;
+      }
+      const total = inv.all.length;
+      const filtered = inv.filtered.length;
+      if (!total) {
+        count.textContent = "Inventory";
+      } else if (filtered === total) {
+        count.textContent = `${total.toLocaleString()} vehicles`;
+      } else {
+        count.textContent = `${filtered.toLocaleString()} of ${total.toLocaleString()} vehicles`;
       }
     }
 
@@ -1142,6 +1290,7 @@
 
       inv.displayed = 0;
       document.getElementById("invGrid").innerHTML = "";
+      updateInventoryCount();
       renderInvCards(inv.pageSize);
     }
 
@@ -1159,6 +1308,7 @@
       inv.displayed += slice.length;
       document.getElementById("invLoadMore").style.display =
         inv.displayed < inv.filtered.length ? "" : "none";
+      if (window.lucide) window.lucide.createIcons();
     }
 
     function loadMoreInventory() {
@@ -1170,6 +1320,8 @@
       card.className = "inv-card";
       if (isSelectedPurchase(v)) card.classList.add("selected");
 
+      const media = document.createElement("div");
+      media.className = "inv-media";
       const images = Array.isArray(v.images) ? v.images : [];
       const imgSrc = images[0] || "";
       if (imgSrc) {
@@ -1185,16 +1337,21 @@
           ph.className = "inv-thumb-placeholder";
           ph.textContent = "AUTO";
           ph.addEventListener("click", () => openInventoryDetail(v));
-          card.insertBefore(ph, img);
+          media.insertBefore(ph, img);
         };
-        card.appendChild(img);
+        media.appendChild(img);
       } else {
         const ph = document.createElement("div");
         ph.className = "inv-thumb-placeholder";
         ph.textContent = "AUTO";
         ph.addEventListener("click", () => openInventoryDetail(v));
-        card.appendChild(ph);
+        media.appendChild(ph);
       }
+      const badge = document.createElement("div");
+      badge.className = "inv-card-badge";
+      badge.textContent = v.stock_number ? `Stock ${v.stock_number}` : (v.body_style || "Available");
+      media.appendChild(badge);
+      card.appendChild(media);
 
       const body = document.createElement("div");
       body.className = "inv-body";
@@ -1221,9 +1378,9 @@
         if (state.valuation && state.valuation.trade_offer) {
           const net = v.price - state.valuation.trade_offer;
           const netEl = document.createElement("span");
-          netEl.style.cssText = "font-size:13px; font-weight:700; color:var(--muted); margin-left:8px;";
+          netEl.className = "inv-net";
           netEl.title = "Estimated net cost after your trade-in offer";
-          netEl.textContent = `(net ${new Intl.NumberFormat("en-US", {style:"currency",currency:"USD",maximumFractionDigits:0}).format(Math.max(net,0))} w/ trade)`;
+          netEl.textContent = `${new Intl.NumberFormat("en-US", {style:"currency",currency:"USD",maximumFractionDigits:0}).format(Math.max(net,0))} after trade`;
           price.appendChild(netEl);
         }
       } else {
@@ -1238,15 +1395,17 @@
       const selectBtn = document.createElement("button");
       selectBtn.type = "button";
       selectBtn.className = "inv-btn-primary";
-      selectBtn.textContent = isSelectedPurchase(v)
-        ? "Selected"
-        : (state.valuation ? "Estimate Deal" : "Select Purchase");
+      selectBtn.innerHTML = isSelectedPurchase(v)
+        ? `<i data-lucide="check"></i><span>Selected</span>`
+        : (state.valuation
+          ? `<i data-lucide="calculator"></i><span>Estimate Deal</span>`
+          : `<i data-lucide="check-circle"></i><span>Select Purchase</span>`);
       selectBtn.addEventListener("click", () => selectPurchaseVehicle(v));
       actions.appendChild(selectBtn);
       const inspectBtn = document.createElement("button");
       inspectBtn.type = "button";
       inspectBtn.className = "inv-btn-secondary";
-      inspectBtn.textContent = "Inspect";
+      inspectBtn.innerHTML = `<i data-lucide="image"></i><span>Inspect</span>`;
       inspectBtn.addEventListener("click", () => openInventoryDetail(v));
       actions.appendChild(inspectBtn);
       if (v.detail_url) {
@@ -1255,7 +1414,7 @@
         link.href = v.detail_url;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
-        link.textContent = "Details";
+        link.innerHTML = `<i data-lucide="external-link"></i><span>Details</span>`;
         actions.appendChild(link);
       }
       const callBtn = document.createElement("a");
@@ -1263,7 +1422,7 @@
       const phone = window.AUTOTRADE.dealer.phone || "";
       if (phone) {
         callBtn.href = "tel:" + phone.replace(/\D/g, "");
-        callBtn.textContent = "Call";
+        callBtn.innerHTML = `<i data-lucide="phone"></i><span>Call</span>`;
       } else {
         callBtn.style.display = "none";
       }
@@ -1371,11 +1530,11 @@
         ["Engine", vehicle.engine || "-"],
       ];
       const detailUrl = vehicle.detail_url
-        ? `<a class="secondary" style="text-decoration:none; min-height:44px; display:inline-flex; align-items:center; justify-content:center; padding:10px 16px; border-radius:6px;" href="${escapeAttr(vehicle.detail_url)}" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Dealer Page</a>`
+        ? `<a class="secondary inventory-link-button" href="${escapeAttr(vehicle.detail_url)}" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Dealer Page</a>`
         : "";
       document.getElementById("inventoryDetailPanel").innerHTML = `
         <div class="inventory-detail-price">${vehicle.price ? money.format(vehicle.price) : "Call for price"}</div>
-        <p class="reasoning-copy">${escapeHtml(vehicle.description || "Vehicle details are available from the dealer.")}</p>
+        <p class="inventory-detail-copy">${escapeHtml(vehicle.description || "Vehicle details are available from the dealer.")}</p>
         <div class="inventory-spec-grid">
           ${specs.map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
         </div>
@@ -1441,15 +1600,15 @@
       filterInventory();
     }
 
-    function showInventorySection() {
+    function showInventorySection(force = false) {
       const section = document.getElementById("inventorySection");
       if (!section) return;
       section.style.display = "";
-      loadInventory();
+      loadInventory(force);
     }
 
     function skipToInventory() {
-      showInventorySection();
+      showInventorySection(true);
       // Small delay so the section is rendered before we scroll
       requestAnimationFrame(() => {
         const section = document.getElementById("inventorySection");

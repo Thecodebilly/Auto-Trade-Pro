@@ -43,6 +43,36 @@ _USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/124.0.0.0 Safari/537.36"
 )
+_BAD_IMAGE_MARKERS = (
+    "coming-soon",
+    "coming_soon",
+    "default",
+    "image-not-available",
+    "logo",
+    "no-image",
+    "no-photo",
+    "no_image",
+    "no_photo",
+    "noimage",
+    "nophoto",
+    "notavailable",
+    "placeholder",
+    "photo-not-available",
+    "transparent",
+)
+_RENDER_IMAGE_MARKERS = (
+    "jellies",
+    "media.dealeralchemist.com",
+    "stock-photo",
+    "stockphoto",
+)
+_REAL_IMAGE_MARKERS = (
+    "assets.cai-media-management.com",
+    "common-vehicle-media",
+    "inventory",
+    "photo",
+    "vehicle-media",
+)
 
 
 def scrape_inventory(
@@ -971,7 +1001,7 @@ def _map_typesense_doc(doc: dict[str, Any], base_url: str) -> dict[str, Any] | N
     # Images — imageUrls is a list of CDN URLs
     image_urls = doc.get("imageUrls", [])
     if isinstance(image_urls, list):
-        v["images"] = [str(u) for u in image_urls if str(u).startswith("http")][:12]
+        v["images"] = [str(u) for u in image_urls if str(u).startswith("http")][:40]
     elif isinstance(image_urls, str) and image_urls.startswith("http"):
         v["images"] = [image_urls]
 
@@ -1432,6 +1462,51 @@ def _parse_int(val: str) -> int | None:
     return _int_or_none(val.replace(",", ""))
 
 
+def _rank_vehicle_images(images: list[Any], *, limit: int = 12) -> list[str]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for raw in images:
+        url = str(raw or "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            continue
+        key = url.split("#", 1)[0]
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(url)
+
+    def image_score(item: tuple[int, str]) -> tuple[int, int]:
+        index, url = item
+        lower = url.lower()
+        path = urllib.parse.urlparse(url).path.lower()
+        is_bad = any(marker in lower for marker in _BAD_IMAGE_MARKERS)
+        if is_bad:
+            return -1000, -index
+        score = 0
+        if any(marker in lower for marker in _REAL_IMAGE_MARKERS):
+            score += 80
+        if path.endswith((".jpg", ".jpeg")):
+            score += 16
+        elif path.endswith(".webp"):
+            score += 12
+        elif path.endswith(".png"):
+            score += 6
+        if "front" in lower or "angle" in lower or "hero" in lower:
+            score += 8
+        if "side" in lower:
+            score += 3
+        if "interior" in lower:
+            score -= 2
+        if "back" in lower or "rear" in lower:
+            score -= 4
+        if any(marker in lower for marker in _RENDER_IMAGE_MARKERS):
+            score -= 24
+        return score, -index
+
+    ranked = sorted(enumerate(unique), key=image_score, reverse=True)
+    return [url for _index, url in ranked[:limit]]
+
+
 def _normalise(v: dict[str, Any]) -> dict[str, Any]:
     """Return a clean, consistent vehicle dict."""
     return {
@@ -1451,6 +1526,8 @@ def _normalise(v: dict[str, Any]) -> dict[str, Any]:
         "drivetrain": str(v.get("drivetrain", "") or "").strip()[:60],
         "engine": str(v.get("engine", "") or "").strip()[:120],
         "description": str(v.get("description", "") or "").strip()[:2000],
-        "images": v.get("images", []) if isinstance(v.get("images"), list) else [],
+        "images": _rank_vehicle_images(
+            v.get("images", []) if isinstance(v.get("images"), list) else []
+        ),
         "detail_url": str(v.get("detail_url", "") or "").strip()[:500],
     }

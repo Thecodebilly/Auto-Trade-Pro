@@ -8,10 +8,13 @@ import pytest
 from autotrade_pro import create_app
 from autotrade_pro.config import AppConfig
 from autotrade_pro.database import (
+    DEFAULT_INVENTORY_SOURCES,
     connect,
     database_backend,
     fetch_dealer_by_slug,
     list_data_source_status,
+    list_inventory_sources,
+    list_inventory_vehicles,
     seed_demo_data,
     update_dealer,
 )
@@ -166,71 +169,193 @@ def test_public_valuation_and_appointment_flow(tmp_path):
     assert "Estimated monthly payment: $520" in appointment_payload["valuation"]["appointment_notes"]
 
 
-def test_public_inventory_returns_showroom_vehicles(tmp_path):
+def test_public_inventory_defaults_to_erdman_sources_without_cached_vehicles(tmp_path):
     app = _app(tmp_path)
     client = app.test_client()
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
 
     response = client.get("/api/dealers/south-florida-demo/inventory?limit=200")
 
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["ok"] is True
-    assert payload["total"] == 8
-    assert len(payload["vehicles"]) == 8
-    first = payload["vehicles"][0]
-    assert first["status"] == "active"
-    assert first["price"] > 0
-    assert first["images"]
-    assert len(first["images"]) >= 2
-    assert "commons.wikimedia.org" in first["images"][0]
-    assert first["detail_url"] == ""
-    assert "demo" not in " ".join(
-        str(first.get(key, ""))
-        for key in ["external_id", "source_url", "source_label", "notes"]
-    ).lower()
+    assert payload["total"] == 0
+    assert payload["vehicles"] == []
+
+    sources = list_inventory_sources(tmp_path / "autotrade.db", dealer["id"])
+    assert {source["url"] for source in sources} == {
+        url for url, _label in DEFAULT_INVENTORY_SOURCES
+    }
+
+
+def test_public_inventory_refresh_fetches_default_erdman_sources(tmp_path, monkeypatch):
+    app = _app(tmp_path)
+    client = app.test_client()
+    captured: list[tuple[str, dict]] = []
+
+    def fake_scrape_inventory(url, **kwargs):
+        captured.append((url, kwargs))
+        if "new-vehicles" not in url:
+            return {
+                "vehicles": [],
+                "total": 0,
+                "source": "test",
+                "errors": [],
+            }
+        return {
+            "vehicles": [
+                {
+                    "external_id": "erdman-rav4-1",
+                    "vin": "4T3RWRFV8RU000001",
+                    "stock_number": "ERD1001",
+                    "year": 2024,
+                    "make": "TOYOTA",
+                    "model": "RAV4",
+                    "trim": "XLE Hybrid",
+                    "body_style": "SUV",
+                    "price": 34250,
+                    "mileage": 12,
+                    "ext_color": "Ice Cap",
+                    "int_color": "Black",
+                    "transmission": "CVT",
+                    "drivetrain": "AWD",
+                    "engine": "2.5L Hybrid",
+                    "description": "Fetched from the Erdman website.",
+                    "images": ["https://www.erdmanautomotive.com/rav4.jpg"],
+                    "detail_url": "https://www.erdmanautomotive.com/inventory/erd1001",
+                }
+            ],
+            "total": 1,
+            "source": "test",
+            "errors": [],
+        }
+
+    monkeypatch.setattr("autotrade_pro.routes.scrape_inventory", fake_scrape_inventory)
+
+    refresh = client.post("/api/dealers/south-florida-demo/inventory/refresh?limit=200")
+
+    assert refresh.status_code == 200
+    payload = refresh.get_json()
+    assert payload["ok"] is True
+    assert payload["total"] == 1
+    assert payload["sync_count"] == 1
+    assert {url for url, _kwargs in captured} == {
+        url for url, _label in DEFAULT_INVENTORY_SOURCES
+    }
+    assert all(call_kwargs["max_vehicles"] == 5000 for _url, call_kwargs in captured)
+    vehicle = payload["vehicles"][0]
+    assert vehicle["stock_number"] == "ERD1001"
+    assert vehicle["detail_url"] == "https://www.erdmanautomotive.com/inventory/erd1001"
+    assert vehicle["images"] == ["https://www.erdmanautomotive.com/rav4.jpg"]
+
+    cached = client.get("/api/dealers/south-florida-demo/inventory?limit=200")
+    assert cached.get_json()["total"] == 1
+
+
+def test_inventory_listing_prefers_real_photos_over_newer_renders(tmp_path):
+    _app(tmp_path)
 
     with connect(tmp_path / "autotrade.db") as conn:
+        source = conn.execute(
+            "SELECT id FROM inventory_sources WHERE url LIKE 'https://www.erdmanautomotive.com/%' LIMIT 1"
+        ).fetchone()
+        conn.executemany(
+            """
+            INSERT INTO inventory_vehicles (
+                dealer_id, source_id, external_id, stock_number,
+                year, make, model, trim, body_style, price, mileage,
+                images_json, detail_url, status, created_at, updated_at
+            )
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'now', 'now')
+            """,
+            [
+                (
+                    source["id"],
+                    "render-only",
+                    "RENDER",
+                    2027,
+                    "TOYOTA",
+                    "LAND CRUISER",
+                    "Base",
+                    "SUV",
+                    68304,
+                    4,
+                    json.dumps(
+                        [
+                            "https://media.dealeralchemist.com/jellies/Toyota/Land-Cruiser/front.png"
+                        ]
+                    ),
+                    "https://www.erdmanautomotive.com/vehicle/New/2027/Toyota/Land-Cruiser/render/",
+                ),
+                (
+                    source["id"],
+                    "real-photo",
+                    "REALPHOTO",
+                    2026,
+                    "NISSAN",
+                    "ROGUE",
+                    "SV",
+                    "SUV",
+                    32216,
+                    7,
+                    json.dumps(
+                        [
+                            "https://assets.cai-media-management.com/resize/640x640/common-vehicle-media/rogue.jpg"
+                        ]
+                    ),
+                    "https://www.erdmanautomotive.com/vehicle/New/2026/Nissan/Rogue/photo/",
+                ),
+            ],
+        )
+        conn.commit()
+
+    vehicles = list_inventory_vehicles(
+        tmp_path / "autotrade.db", 1, status="active", limit=10
+    )
+
+    assert [vehicle["stock_number"] for vehicle in vehicles] == ["REALPHOTO", "RENDER"]
+
+
+def test_bootstrap_removes_previous_internal_inventory_rows(tmp_path):
+    _app(tmp_path)
+
+    with connect(tmp_path / "autotrade.db") as conn:
+        source_id = conn.execute(
+            """
+            INSERT INTO inventory_sources (
+                dealer_id, url, label, auto_sync_enabled,
+                last_sync_status, created_at, updated_at
+            )
+            VALUES (1, 'inventory://south-florida-showroom', 'Showroom inventory', 0, 'success', 'now', 'now')
+            """
+        ).lastrowid
         conn.execute(
             """
-            UPDATE inventory_vehicles
-            SET external_id = ?,
-                images_json = ?,
-                detail_url = ?,
-                notes = ?
-            WHERE stock_number = 'ATP1001'
+            INSERT INTO inventory_vehicles (
+                dealer_id, source_id, external_id, stock_number,
+                year, make, model, trim, body_style, price, mileage,
+                images_json, status, notes, created_at, updated_at
+            )
+            VALUES (
+                1, ?, 'inventory-rav4-hybrid', 'ATP1001',
+                2024, 'TOYOTA', 'RAV4', 'XLE Hybrid', 'SUV', 34250, 12,
+                ?, 'active', 'Showroom inventory', 'now', 'now'
+            )
             """,
             (
-                "demo-rav4-hybrid",
+                source_id,
                 json.dumps(["https://images.unsplash.com/photo-wrong"]),
-                "https://commons.wikimedia.org/wiki/File:Toyota_RAV4_XLE_(facelift)_(front).jpg",
-                "Seeded demo inventory",
             ),
-        )
-        conn.execute(
-            """
-            UPDATE inventory_sources
-            SET url = ?, label = ?
-            WHERE dealer_id = 1
-            """,
-            ("demo://south-florida-inventory", "Seeded demo inventory"),
         )
         conn.commit()
 
     seed_demo_data(tmp_path / "autotrade.db")
-    refreshed = client.get("/api/dealers/south-florida-demo/inventory?limit=200")
-    refreshed_payload = refreshed.get_json()
-    rav4 = next(
-        vehicle
-        for vehicle in refreshed_payload["vehicles"]
-        if vehicle["stock_number"] == "ATP1001"
-    )
-    assert "unsplash.com" not in " ".join(rav4["images"])
-    assert "Toyota%20RAV4" in rav4["images"][0]
-    assert rav4["detail_url"] == ""
-    assert rav4["external_id"] == "inventory-rav4-hybrid"
-    assert rav4["source_url"] == "inventory://south-florida-showroom"
-    assert rav4["source_label"] == "Showroom inventory"
-    assert rav4["notes"] == "Showroom inventory"
+
+    with connect(tmp_path / "autotrade.db") as conn:
+        vehicles = conn.execute("SELECT COUNT(*) AS count FROM inventory_vehicles").fetchone()
+        sources = conn.execute("SELECT COUNT(*) AS count FROM inventory_sources").fetchone()
+    assert vehicles["count"] == 0
+    assert sources["count"] == len(DEFAULT_INVENTORY_SOURCES)
 
 
 def test_database_backend_uses_postgres_url_when_configured(monkeypatch):

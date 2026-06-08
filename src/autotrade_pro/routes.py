@@ -632,6 +632,109 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             }
         )
 
+    @bp.post("/api/dealers/<dealer_slug>/inventory/refresh")
+    def public_inventory_refresh(dealer_slug: str) -> Response:
+        dealer = _dealer_or_404(config, dealer_slug)
+        limit = min(int(request.args.get("limit", 200)), 5000)
+        offset = int(request.args.get("offset", 0))
+        sources = [
+            source
+            for source in list_inventory_sources(config.database_path, dealer["id"])
+            if str(source.get("url", "")).lower().startswith(("http://", "https://"))
+        ]
+        if not sources:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "vehicles": [],
+                        "total": 0,
+                        "limit": limit,
+                        "offset": offset,
+                        "error": "No inventory website URL is configured for this dealer.",
+                    }
+                ),
+                400,
+            )
+
+        errors: list[str] = []
+        sync_count = 0
+        for source in sources:
+            try:
+                result = scrape_inventory(
+                    source["url"],
+                    openai_api_key=dealer.get("openai_api_key", ""),
+                    openai_model=dealer.get("openai_model", "gpt-4.1-mini"),
+                    max_vehicles=5000,
+                )
+                source_errors = result.get("errors", [])
+                vehicles = result.get("vehicles", [])
+                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                count = upsert_inventory_vehicles(
+                    config.database_path,
+                    source["dealer_id"],
+                    source["id"],
+                    vehicles,
+                    now,
+                )
+                sync_count += count
+                update_inventory_source_sync_result(
+                    config.database_path,
+                    source["id"],
+                    count=count,
+                    status="ok",
+                    error="; ".join(source_errors) if source_errors else "",
+                )
+                errors.extend(str(error) for error in source_errors)
+            except Exception as exc:
+                message = str(exc)
+                errors.append(message)
+                update_inventory_source_sync_result(
+                    config.database_path,
+                    source["id"],
+                    count=0,
+                    status="error",
+                    error=message[:500],
+                )
+
+        vehicles = list_inventory_vehicles(
+            config.database_path,
+            dealer["id"],
+            status="active",
+            limit=limit,
+            offset=offset,
+        )
+        total = count_inventory_vehicles(
+            config.database_path, dealer["id"], status="active"
+        )
+        if errors and not vehicles:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "vehicles": [],
+                        "total": total,
+                        "limit": limit,
+                        "offset": offset,
+                        "sync_count": sync_count,
+                        "errors": errors,
+                        "error": "Inventory website fetch did not return vehicles.",
+                    }
+                ),
+                502,
+            )
+        return jsonify(
+            {
+                "ok": True,
+                "vehicles": vehicles,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "sync_count": sync_count,
+                "errors": errors,
+            }
+        )
+
     # ------------------------------------------------------------------
     # Admin inventory routes
     # ------------------------------------------------------------------
