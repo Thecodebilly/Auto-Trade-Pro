@@ -12,6 +12,7 @@ from autotrade_pro.database import (
     database_backend,
     fetch_dealer_by_slug,
     list_data_source_status,
+    seed_demo_data,
     update_dealer,
 )
 
@@ -165,7 +166,7 @@ def test_public_valuation_and_appointment_flow(tmp_path):
     assert "Estimated monthly payment: $520" in appointment_payload["valuation"]["appointment_notes"]
 
 
-def test_public_inventory_returns_seeded_demo_vehicles(tmp_path):
+def test_public_inventory_returns_showroom_vehicles(tmp_path):
     app = _app(tmp_path)
     client = app.test_client()
 
@@ -180,6 +181,56 @@ def test_public_inventory_returns_seeded_demo_vehicles(tmp_path):
     assert first["status"] == "active"
     assert first["price"] > 0
     assert first["images"]
+    assert len(first["images"]) >= 2
+    assert "commons.wikimedia.org" in first["images"][0]
+    assert first["detail_url"] == ""
+    assert "demo" not in " ".join(
+        str(first.get(key, ""))
+        for key in ["external_id", "source_url", "source_label", "notes"]
+    ).lower()
+
+    with connect(tmp_path / "autotrade.db") as conn:
+        conn.execute(
+            """
+            UPDATE inventory_vehicles
+            SET external_id = ?,
+                images_json = ?,
+                detail_url = ?,
+                notes = ?
+            WHERE stock_number = 'ATP1001'
+            """,
+            (
+                "demo-rav4-hybrid",
+                json.dumps(["https://images.unsplash.com/photo-wrong"]),
+                "https://commons.wikimedia.org/wiki/File:Toyota_RAV4_XLE_(facelift)_(front).jpg",
+                "Seeded demo inventory",
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE inventory_sources
+            SET url = ?, label = ?
+            WHERE dealer_id = 1
+            """,
+            ("demo://south-florida-inventory", "Seeded demo inventory"),
+        )
+        conn.commit()
+
+    seed_demo_data(tmp_path / "autotrade.db")
+    refreshed = client.get("/api/dealers/south-florida-demo/inventory?limit=200")
+    refreshed_payload = refreshed.get_json()
+    rav4 = next(
+        vehicle
+        for vehicle in refreshed_payload["vehicles"]
+        if vehicle["stock_number"] == "ATP1001"
+    )
+    assert "unsplash.com" not in " ".join(rav4["images"])
+    assert "Toyota%20RAV4" in rav4["images"][0]
+    assert rav4["detail_url"] == ""
+    assert rav4["external_id"] == "inventory-rav4-hybrid"
+    assert rav4["source_url"] == "inventory://south-florida-showroom"
+    assert rav4["source_label"] == "Showroom inventory"
+    assert rav4["notes"] == "Showroom inventory"
 
 
 def test_database_backend_uses_postgres_url_when_configured(monkeypatch):

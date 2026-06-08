@@ -627,8 +627,118 @@
     .inv-btn-secondary { background: #e7eef3; color: var(--primary); }
     .inv-empty { text-align: center; color: rgba(255,255,255,.7); padding: 36px 0; font-size: 16px; }
     .inv-load-more { display: flex; justify-content: center; margin-top: 22px; }
+    .inventory-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 35;
+      display: grid;
+      place-items: center;
+      padding: 18px;
+      background: rgba(9, 18, 28, .68);
+    }
+    .inventory-modal[hidden] { display: none; }
+    .inventory-dialog {
+      width: min(1040px, 100%);
+      max-height: min(840px, calc(100vh - 36px));
+      overflow: auto;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 24px 76px rgba(0, 0, 0, .32);
+    }
+    .inventory-dialog-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .inventory-dialog-head h2 { margin: 0; font-size: 22px; line-height: 1.2; }
+    .inventory-dialog-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr);
+      gap: 18px;
+      padding: 18px;
+    }
+    .inventory-photo-stage {
+      position: relative;
+      min-height: 360px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #d6dfe8;
+      border: 1px solid var(--line);
+    }
+    .inventory-photo-stage img {
+      width: 100%;
+      height: 100%;
+      min-height: 360px;
+      object-fit: cover;
+      display: block;
+    }
+    .inventory-photo-empty {
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      color: #6f8292;
+      font-weight: 900;
+      font-size: 22px;
+    }
+    .inventory-photo-nav {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+      padding: 12px;
+    }
+    .inventory-photo-nav button {
+      pointer-events: auto;
+      width: 42px;
+      min-height: 42px;
+      padding: 0;
+      border-radius: 999px;
+      color: #fff;
+      background: rgba(12, 24, 35, .62);
+      border: 1px solid rgba(255,255,255,.32);
+      box-shadow: none;
+    }
+    .inventory-thumbs {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(74px, 1fr));
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .inventory-thumb-btn {
+      min-height: 58px;
+      padding: 0;
+      border-radius: 6px;
+      border: 2px solid transparent;
+      overflow: hidden;
+      background: #e7eef3;
+      box-shadow: none;
+    }
+    .inventory-thumb-btn.active { border-color: var(--primary); }
+    .inventory-thumb-btn img { width: 100%; height: 58px; object-fit: cover; display: block; }
+    .inventory-detail-panel { display: grid; gap: 14px; align-content: start; }
+    .inventory-detail-price { font-size: 34px; line-height: 1; color: var(--primary); font-weight: 900; }
+    .inventory-spec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .inventory-modal-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    .inventory-vehicle-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 18px 18px;
+    }
+    .inventory-position { color: var(--muted); font-weight: 800; font-size: 13px; }
     @media (max-width: 720px) {
       .inv-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+      .inventory-dialog-body { grid-template-columns: 1fr; }
+      .inventory-photo-stage, .inventory-photo-stage img, .inventory-photo-empty { min-height: 250px; }
+      .inventory-spec-grid { grid-template-columns: 1fr; }
+      .inventory-vehicle-nav { flex-direction: column; align-items: stretch; }
     }
   </style>
 </head>
@@ -916,6 +1026,30 @@
     </div>
   </section>
 
+  <div class="inventory-modal" id="inventoryModal" hidden>
+    <div class="inventory-dialog" role="dialog" aria-modal="true" aria-labelledby="inventoryTitle">
+      <div class="inventory-dialog-head">
+        <div>
+          <h2 id="inventoryTitle">Vehicle Details</h2>
+          <div class="muted" id="inventorySubtitle" style="margin-top:4px;">Available inventory</div>
+        </div>
+        <button class="ghost icon-only" id="inventoryCloseBtn" type="button" aria-label="Close inventory details"><i data-lucide="x"></i></button>
+      </div>
+      <div class="inventory-dialog-body">
+        <div>
+          <div class="inventory-photo-stage" id="inventoryPhotoStage"></div>
+          <div class="inventory-thumbs" id="inventoryThumbs"></div>
+        </div>
+        <div class="inventory-detail-panel" id="inventoryDetailPanel"></div>
+      </div>
+      <div class="inventory-vehicle-nav">
+        <button class="secondary" id="inventoryPrevVehicleBtn" type="button"><i data-lucide="arrow-left"></i> Previous Vehicle</button>
+        <div class="inventory-position" id="inventoryPosition">Vehicle 1 of 1</div>
+        <button class="secondary" id="inventoryNextVehicleBtn" type="button">Next Vehicle <i data-lucide="arrow-right"></i></button>
+      </div>
+    </div>
+  </div>
+
   <div class="trend-modal" id="trendModal" hidden>
     <div class="trend-dialog" role="dialog" aria-modal="true" aria-labelledby="trendTitle">
       <div class="trend-head">
@@ -965,6 +1099,8 @@
       displayed: 0,
       pageSize: 24,
       loaded: false,
+      detailIndex: 0,
+      detailImageIndex: 0,
     };
 
     async function loadInventory() {
@@ -1042,18 +1178,21 @@
         img.src = imgSrc;
         img.alt = `${v.year || ""} ${v.make || ""} ${v.model || ""}`.trim();
         img.loading = "lazy";
+        img.addEventListener("click", () => openInventoryDetail(v));
         img.onerror = () => {
           img.style.display = "none";
           const ph = document.createElement("div");
           ph.className = "inv-thumb-placeholder";
-          ph.textContent = "🚗";
+          ph.textContent = "AUTO";
+          ph.addEventListener("click", () => openInventoryDetail(v));
           card.insertBefore(ph, img);
         };
         card.appendChild(img);
       } else {
         const ph = document.createElement("div");
         ph.className = "inv-thumb-placeholder";
-        ph.textContent = "🚗";
+        ph.textContent = "AUTO";
+        ph.addEventListener("click", () => openInventoryDetail(v));
         card.appendChild(ph);
       }
 
@@ -1104,6 +1243,12 @@
         : (state.valuation ? "Estimate Deal" : "Select Purchase");
       selectBtn.addEventListener("click", () => selectPurchaseVehicle(v));
       actions.appendChild(selectBtn);
+      const inspectBtn = document.createElement("button");
+      inspectBtn.type = "button";
+      inspectBtn.className = "inv-btn-secondary";
+      inspectBtn.textContent = "Inspect";
+      inspectBtn.addEventListener("click", () => openInventoryDetail(v));
+      actions.appendChild(inspectBtn);
       if (v.detail_url) {
         const link = document.createElement("a");
         link.className = "inv-btn-secondary";
@@ -1122,11 +1267,128 @@
       } else {
         callBtn.style.display = "none";
       }
-      actions.appendChild(callBtn);
+      if (phone) actions.appendChild(callBtn);
       body.appendChild(actions);
 
       card.appendChild(body);
       return card;
+    }
+
+    function openInventoryDetail(vehicle) {
+      const list = inv.filtered.length ? inv.filtered : inv.all;
+      const key = purchaseKey(vehicle);
+      const index = list.findIndex(item => purchaseKey(item) === key);
+      inv.detailIndex = Math.max(0, index);
+      inv.detailImageIndex = 0;
+      document.getElementById("inventoryModal").hidden = false;
+      renderInventoryDetail();
+    }
+
+    function closeInventoryDetail() {
+      document.getElementById("inventoryModal").hidden = true;
+    }
+
+    function currentInventoryDetailList() {
+      return inv.filtered.length ? inv.filtered : inv.all;
+    }
+
+    function currentInventoryVehicle() {
+      const list = currentInventoryDetailList();
+      if (!list.length) return null;
+      inv.detailIndex = Math.min(Math.max(inv.detailIndex, 0), list.length - 1);
+      return list[inv.detailIndex];
+    }
+
+    function changeInventoryVehicle(delta) {
+      const list = currentInventoryDetailList();
+      if (!list.length) return;
+      inv.detailIndex = (inv.detailIndex + delta + list.length) % list.length;
+      inv.detailImageIndex = 0;
+      renderInventoryDetail();
+    }
+
+    function changeInventoryImage(delta) {
+      const vehicle = currentInventoryVehicle();
+      const images = Array.isArray(vehicle && vehicle.images) ? vehicle.images.filter(Boolean) : [];
+      if (!images.length) return;
+      inv.detailImageIndex = (inv.detailImageIndex + delta + images.length) % images.length;
+      renderInventoryDetail();
+    }
+
+    function renderInventoryDetail() {
+      const vehicle = currentInventoryVehicle();
+      if (!vehicle) return;
+      const list = currentInventoryDetailList();
+      const images = Array.isArray(vehicle.images) ? vehicle.images.filter(Boolean) : [];
+      inv.detailImageIndex = Math.min(Math.max(inv.detailImageIndex, 0), Math.max(images.length - 1, 0));
+      const activeImage = images[inv.detailImageIndex] || "";
+
+      document.getElementById("inventoryTitle").textContent = vehicleName(vehicle) || "Vehicle Details";
+      document.getElementById("inventorySubtitle").textContent = [
+        vehicle.stock_number ? `Stock ${vehicle.stock_number}` : "",
+        vehicle.body_style || "",
+        vehicle.ext_color || "",
+      ].filter(Boolean).join(" · ") || "Available inventory";
+      document.getElementById("inventoryPosition").textContent = `Vehicle ${inv.detailIndex + 1} of ${list.length}`;
+
+      document.getElementById("inventoryPhotoStage").innerHTML = activeImage ? `
+        <img id="inventoryDetailImage" src="${escapeAttr(activeImage)}" alt="${escapeAttr(vehicleName(vehicle) || "Vehicle")}">
+        <div class="inventory-photo-nav">
+          <button type="button" id="inventoryPrevImageBtn" aria-label="Previous photo"><i data-lucide="chevron-left"></i></button>
+          <button type="button" id="inventoryNextImageBtn" aria-label="Next photo"><i data-lucide="chevron-right"></i></button>
+        </div>
+      ` : `<div class="inventory-photo-empty">Image unavailable</div>`;
+
+      const detailImage = document.getElementById("inventoryDetailImage");
+      if (detailImage) {
+        detailImage.onerror = () => {
+          document.getElementById("inventoryPhotoStage").innerHTML = `<div class="inventory-photo-empty">Image unavailable</div>`;
+        };
+      }
+      const prevImage = document.getElementById("inventoryPrevImageBtn");
+      const nextImage = document.getElementById("inventoryNextImageBtn");
+      if (prevImage) prevImage.addEventListener("click", () => changeInventoryImage(-1));
+      if (nextImage) nextImage.addEventListener("click", () => changeInventoryImage(1));
+
+      document.getElementById("inventoryThumbs").innerHTML = images.map((image, index) => `
+        <button class="inventory-thumb-btn ${index === inv.detailImageIndex ? "active" : ""}" type="button" data-inventory-thumb="${index}" aria-label="Photo ${index + 1}">
+          <img src="${escapeAttr(image)}" alt="">
+        </button>
+      `).join("");
+      document.querySelectorAll("[data-inventory-thumb]").forEach(button => {
+        button.addEventListener("click", () => {
+          inv.detailImageIndex = Number(button.dataset.inventoryThumb || 0);
+          renderInventoryDetail();
+        });
+      });
+
+      const specs = [
+        ["Mileage", vehicle.mileage ? `${Number(vehicle.mileage).toLocaleString()} mi` : "New"],
+        ["Exterior", vehicle.ext_color || "-"],
+        ["Interior", vehicle.int_color || "-"],
+        ["Transmission", vehicle.transmission || "-"],
+        ["Drivetrain", vehicle.drivetrain || "-"],
+        ["Engine", vehicle.engine || "-"],
+      ];
+      const detailUrl = vehicle.detail_url
+        ? `<a class="secondary" style="text-decoration:none; min-height:44px; display:inline-flex; align-items:center; justify-content:center; padding:10px 16px; border-radius:6px;" href="${escapeAttr(vehicle.detail_url)}" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Dealer Page</a>`
+        : "";
+      document.getElementById("inventoryDetailPanel").innerHTML = `
+        <div class="inventory-detail-price">${vehicle.price ? money.format(vehicle.price) : "Call for price"}</div>
+        <p class="reasoning-copy">${escapeHtml(vehicle.description || "Vehicle details are available from the dealer.")}</p>
+        <div class="inventory-spec-grid">
+          ${specs.map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
+        </div>
+        <div class="inventory-modal-actions">
+          <button class="primary" id="inventorySelectBtn" type="button"><i data-lucide="calculator"></i> Use for Deal</button>
+          ${detailUrl}
+        </div>
+      `;
+      document.getElementById("inventorySelectBtn").addEventListener("click", () => {
+        selectPurchaseVehicle(vehicle);
+        closeInventoryDetail();
+      });
+      if (window.lucide) window.lucide.createIcons();
     }
 
     function purchaseKey(vehicle) {
@@ -1259,6 +1521,19 @@
       });
       document.getElementById("reasoningModal").addEventListener("click", event => {
         if (event.target.id === "reasoningModal") closePricingReasoning();
+      });
+      document.getElementById("inventoryCloseBtn").addEventListener("click", closeInventoryDetail);
+      document.getElementById("inventoryModal").addEventListener("click", event => {
+        if (event.target.id === "inventoryModal") closeInventoryDetail();
+      });
+      document.getElementById("inventoryPrevVehicleBtn").addEventListener("click", () => changeInventoryVehicle(-1));
+      document.getElementById("inventoryNextVehicleBtn").addEventListener("click", () => changeInventoryVehicle(1));
+      document.addEventListener("keydown", event => {
+        const inventoryOpen = !document.getElementById("inventoryModal").hidden;
+        if (!inventoryOpen) return;
+        if (event.key === "Escape") closeInventoryDetail();
+        if (event.key === "ArrowLeft") changeInventoryVehicle(-1);
+        if (event.key === "ArrowRight") changeInventoryVehicle(1);
       });
       document.getElementById("toDealBtn").addEventListener("click", openDealEstimate);
       document.getElementById("toAppointmentBtn").addEventListener("click", () => go(7));
