@@ -746,6 +746,25 @@ def seed_demo_data(db_path: Path, default_slug: str = "south-florida-demo") -> N
                     for year, make, model, trim, source, retail, wholesale, sample, days, confidence in rows
                 ],
             )
+
+        active_inventory_count = conn.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM inventory_vehicles
+            WHERE dealer_id = ? AND status = 'active'
+            """,
+            (dealer_id,),
+        ).fetchone()["count"]
+        seeded_inventory_source = conn.execute(
+            """
+            SELECT id
+            FROM inventory_sources
+            WHERE dealer_id = ? AND url = 'demo://south-florida-inventory'
+            """,
+            (dealer_id,),
+        ).fetchone()
+        if active_inventory_count == 0 and seeded_inventory_source is None:
+            _seed_inventory(conn, dealer_id, now)
         conn.commit()
 
 
@@ -798,6 +817,244 @@ def _seed_dealer(conn: Any, default_slug: str, now: str) -> int:
         "SELECT id FROM dealers WHERE slug = ?", (default_slug,)
     ).fetchone()
     return int(row["id"])
+
+
+def _seed_inventory(conn: Any, dealer_id: int, now: str) -> None:
+    source_id = _insert_returning_id(
+        conn,
+        """
+        INSERT INTO inventory_sources (
+            dealer_id, url, label, auto_sync_enabled,
+            last_synced_at, last_sync_count, last_sync_status,
+            created_at, updated_at
+        )
+        VALUES (?, ?, ?, 0, ?, 8, 'success', ?, ?)
+        """,
+        (
+            dealer_id,
+            "demo://south-florida-inventory",
+            "Seeded demo inventory",
+            now,
+            now,
+            now,
+        ),
+    )
+    image_sets = [
+        [
+            "https://images.unsplash.com/photo-1550355291-bbee04a92027?auto=format&fit=crop&w=900&q=80"
+        ],
+        [
+            "https://images.unsplash.com/photo-1549924231-f129b911e442?auto=format&fit=crop&w=900&q=80"
+        ],
+        [
+            "https://images.unsplash.com/photo-1519641471654-76ce0107ad1b?auto=format&fit=crop&w=900&q=80"
+        ],
+        [
+            "https://images.unsplash.com/photo-1494976388531-d1058494cdd8?auto=format&fit=crop&w=900&q=80"
+        ],
+    ]
+    vehicles = [
+        (
+            "demo-rav4-hybrid",
+            "ATP1001",
+            2024,
+            "TOYOTA",
+            "RAV4",
+            "XLE Hybrid",
+            "SUV",
+            34250,
+            12,
+            "Ice Cap",
+            "Black",
+            "CVT",
+            "AWD",
+            "2.5L Hybrid",
+            "New hybrid SUV with safety tech, power liftgate, and all-weather utility.",
+            image_sets[0],
+        ),
+        (
+            "demo-crv-hybrid",
+            "ATP1002",
+            2024,
+            "HONDA",
+            "CR-V",
+            "Sport-L Hybrid",
+            "SUV",
+            36580,
+            18,
+            "Urban Gray",
+            "Black",
+            "CVT",
+            "AWD",
+            "2.0L Hybrid",
+            "New compact hybrid SUV with leather-trimmed cabin and driver assistance.",
+            image_sets[1],
+        ),
+        (
+            "demo-f150-xlt",
+            "ATP1003",
+            2023,
+            "FORD",
+            "F-150",
+            "XLT SuperCrew",
+            "Pickup",
+            43890,
+            9120,
+            "Oxford White",
+            "Medium Dark Slate",
+            "10-Speed Automatic",
+            "4WD",
+            "2.7L EcoBoost",
+            "Certified pickup with crew cab space, tow equipment, and bed liner.",
+            image_sets[2],
+        ),
+        (
+            "demo-silverado-lt",
+            "ATP1004",
+            2024,
+            "CHEVROLET",
+            "SILVERADO 1500",
+            "LT",
+            "Pickup",
+            46950,
+            24,
+            "Summit White",
+            "Jet Black",
+            "10-Speed Automatic",
+            "4WD",
+            "5.3L V8",
+            "New full-size truck with crew cab comfort and trailering package.",
+            image_sets[3],
+        ),
+        (
+            "demo-camry-se",
+            "ATP1005",
+            2023,
+            "TOYOTA",
+            "CAMRY",
+            "SE",
+            "Sedan",
+            26940,
+            8420,
+            "Celestial Silver",
+            "Black",
+            "8-Speed Automatic",
+            "FWD",
+            "2.5L I4",
+            "Low-mile sedan with sport trim, adaptive cruise, and excellent efficiency.",
+            image_sets[0],
+        ),
+        (
+            "demo-altima-sv",
+            "ATP1006",
+            2024,
+            "NISSAN",
+            "ALTIMA",
+            "SV",
+            "Sedan",
+            27880,
+            15,
+            "Gun Metallic",
+            "Charcoal",
+            "CVT",
+            "FWD",
+            "2.5L I4",
+            "New midsize sedan with connected tech and advanced safety features.",
+            image_sets[1],
+        ),
+        (
+            "demo-sonata-sel",
+            "ATP1007",
+            2023,
+            "HYUNDAI",
+            "SONATA",
+            "SEL",
+            "Sedan",
+            24450,
+            10480,
+            "Portofino Gray",
+            "Dark Gray",
+            "8-Speed Automatic",
+            "FWD",
+            "2.5L I4",
+            "Well-equipped sedan with heated seats, blind-spot monitoring, and warranty.",
+            image_sets[2],
+        ),
+        (
+            "demo-330i",
+            "ATP1008",
+            2022,
+            "BMW",
+            "3 SERIES",
+            "330i",
+            "Sedan",
+            31900,
+            28650,
+            "Alpine White",
+            "Cognac",
+            "8-Speed Automatic",
+            "RWD",
+            "2.0L Turbo",
+            "Premium sport sedan with navigation, sunroof, and driver assistance.",
+            image_sets[3],
+        ),
+    ]
+    conn.executemany(
+        """
+        INSERT INTO inventory_vehicles (
+            dealer_id, source_id, external_id, vin, stock_number,
+            year, make, model, trim, body_style, price, mileage,
+            ext_color, int_color, transmission, drivetrain, engine,
+            description, images_json, detail_url,
+            status, notes, manually_edited, scraped_at, created_at, updated_at
+        )
+        VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '',
+                'active', 'Seeded demo inventory', 0, ?, ?, ?)
+        """,
+        [
+            (
+                dealer_id,
+                source_id,
+                external_id,
+                stock_number,
+                year,
+                make,
+                model,
+                trim,
+                body_style,
+                price,
+                mileage,
+                ext_color,
+                int_color,
+                transmission,
+                drivetrain,
+                engine,
+                description,
+                _json(images),
+                now,
+                now,
+                now,
+            )
+            for (
+                external_id,
+                stock_number,
+                year,
+                make,
+                model,
+                trim,
+                body_style,
+                price,
+                mileage,
+                ext_color,
+                int_color,
+                transmission,
+                drivetrain,
+                engine,
+                description,
+                images,
+            ) in vehicles
+        ],
+    )
 
 
 def fetch_dealer_by_slug(db_path: Path, slug: str) -> dict[str, Any] | None:
@@ -1096,6 +1353,7 @@ def fetch_valuation_by_public_id(
                    c.name AS customer_name, c.email AS customer_email,
                    c.phone AS customer_phone,
                    a.scheduled_date, a.scheduled_time,
+                   a.appointment_type, a.notes AS appointment_notes,
                    a.confirmation_code, a.status AS appointment_status
             FROM valuations v
             JOIN dealers d ON d.id = v.dealer_id
@@ -1160,6 +1418,7 @@ def create_customer_and_appointment(
             ON CONFLICT(valuation_id) DO UPDATE SET
                 scheduled_date = excluded.scheduled_date,
                 scheduled_time = excluded.scheduled_time,
+                appointment_type = excluded.appointment_type,
                 notes = excluded.notes,
                 status = 'booked',
                 updated_at = excluded.updated_at
@@ -1203,7 +1462,8 @@ def list_dealer_leads(
                    v.offer_expires_at, v.created_at,
                    c.name AS customer_name, c.email AS customer_email,
                    c.phone AS customer_phone,
-                   a.scheduled_date, a.scheduled_time, a.confirmation_code
+                   a.scheduled_date, a.scheduled_time, a.appointment_type,
+                   a.confirmation_code
             FROM valuations v
             LEFT JOIN customers c ON c.valuation_id = v.id
             LEFT JOIN appointments a ON a.valuation_id = v.id
@@ -1260,6 +1520,7 @@ def fetch_admin_dashboard_metrics(db_path: Path, dealer_id: int) -> dict[str, An
             for row in conn.execute(
                 """
                 SELECT a.scheduled_date, a.scheduled_time, a.status,
+                       a.appointment_type,
                        a.confirmation_code, v.public_id, v.year, v.make,
                        v.model, v.trade_offer, c.name AS customer_name
                 FROM appointments a
@@ -1850,4 +2111,4 @@ def count_inventory_vehicles(
                 "SELECT COUNT(*) AS cnt FROM inventory_vehicles WHERE dealer_id = ? AND status = ?",
                 (dealer_id, status),
             ).fetchone()
-        return int((row or {}).get("cnt") or 0)
+        return int(row["cnt"] if row is not None else 0)

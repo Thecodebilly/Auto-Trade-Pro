@@ -243,6 +243,9 @@
                     <td>
                       {% if lead.scheduled_date %}
                         {{ lead.scheduled_date }}<br><span class="muted">{{ lead.scheduled_time }} · {{ lead.confirmation_code }}</span>
+                        {% if lead.appointment_type == "trade_purchase" %}
+                          <br><span class="muted">Trade + purchase</span>
+                        {% endif %}
                       {% else %}
                         <span class="muted">Not booked</span>
                       {% endif %}

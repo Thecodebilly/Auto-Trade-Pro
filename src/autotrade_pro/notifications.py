@@ -49,15 +49,23 @@ def _send_email(config: AppConfig, recipient: str, valuation: dict[str, Any]) ->
     message["Subject"] = f"Your AutoTrade Pro appointment {valuation.get('confirmation_code')}"
     message["From"] = config.smtp_username
     message["To"] = recipient
+    appointment_type = (
+        "Trade + purchase"
+        if valuation.get("appointment_type") == "trade_purchase"
+        else "Trade appraisal"
+    )
+    appointment_notes = valuation.get("appointment_notes") or ""
     message.set_content(
         "\n".join(
             [
                 f"Trade value: ${valuation.get('trade_offer', 0):,}",
                 f"Vehicle: {valuation.get('year') or ''} {valuation.get('make') or ''} {valuation.get('model') or ''}".strip(),
                 f"Appointment: {valuation.get('scheduled_date')} at {valuation.get('scheduled_time')}",
+                f"Appointment type: {appointment_type}",
                 f"Dealer: {valuation.get('dealer_name')}",
                 f"Address: {dealer_address}",
                 f"Confirmation: {valuation.get('confirmation_code')}",
+                f"Notes: {appointment_notes}" if appointment_notes else "",
                 "",
                 "Offer is subject to in-person verification and title review.",
             ]

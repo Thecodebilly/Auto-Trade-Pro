@@ -523,6 +523,9 @@
                 <div class="lead-row">
                   <strong>{{ appointment.scheduled_date }} · {{ appointment.scheduled_time }}</strong>
                   <span>{{ appointment.customer_name or appointment.public_id }} · {{ appointment.year or "" }} {{ appointment.make }} {{ appointment.model }} · {{ appointment.trade_offer|currency }}</span>
+                  {% if appointment.appointment_type == "trade_purchase" %}
+                    <span>Trade + purchase</span>
+                  {% endif %}
                 </div>
               {% else %}
                 <div class="empty">No appointments booked yet.</div>

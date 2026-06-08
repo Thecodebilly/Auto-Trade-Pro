@@ -125,7 +125,7 @@
     .app-panel { border-radius: 8px; overflow: hidden; }
     .stepbar {
       display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
+      grid-template-columns: repeat(9, minmax(0, 1fr));
       border-bottom: 1px solid var(--line);
       background: #f7fafb;
     }
@@ -308,6 +308,84 @@
       color: #314335;
       font-weight: 750;
     }
+    .deal-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(260px, .95fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .deal-panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      padding: 16px;
+      min-width: 0;
+    }
+    .deal-panel h3 {
+      margin: 0 0 12px;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+    .deal-vehicle {
+      display: grid;
+      grid-template-columns: 96px minmax(0, 1fr);
+      gap: 14px;
+      align-items: center;
+    }
+    .deal-thumb {
+      width: 96px;
+      height: 72px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #d6dfe8;
+    }
+    .deal-thumb-placeholder {
+      width: 96px;
+      height: 72px;
+      border-radius: 6px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #dde4ec 0%, #c8d2dd 100%);
+      color: #7a8fa0;
+      font-weight: 900;
+      font-size: 20px;
+    }
+    .deal-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.25;
+      overflow-wrap: anywhere;
+    }
+    .deal-meta {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .deal-summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .deal-summary .metric strong { font-size: 20px; }
+    .deal-total {
+      margin-top: 12px;
+      border-color: #bbd7ca;
+      background: #eff9f4;
+    }
+    .deal-total strong { color: var(--good); }
+    .deal-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .appointment-context {
+      margin-bottom: 18px;
+    }
     .trend-modal {
       position: fixed;
       inset: 0;
@@ -442,16 +520,19 @@
       .workspace { grid-template-columns: 1fr; padding-top: 10px; }
       .side-panel { position: static; }
       .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .deal-layout { grid-template-columns: 1fr; }
     }
     @media (max-width: 720px) {
       .topbar { align-items: flex-start; gap: 12px; flex-direction: column; }
       .dealer-contact { flex-wrap: wrap; white-space: normal; }
-      .stepbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .stepbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .step { height: 46px; font-size: 12px; }
-      .grid, .choice-grid, .vehicle-strip, .trend-summary { grid-template-columns: 1fr; }
+      .grid, .choice-grid, .vehicle-strip, .trend-summary, .deal-summary { grid-template-columns: 1fr; }
       .photo-grid { grid-template-columns: 1fr; }
       .actions { flex-direction: column; align-items: stretch; }
       .actions .right, .actions button { width: 100%; }
+      .deal-vehicle { grid-template-columns: 74px minmax(0, 1fr); }
+      .deal-thumb, .deal-thumb-placeholder { width: 74px; height: 58px; }
     }
     /* --- Inventory section --- */
     .inventory-section {
@@ -506,6 +587,7 @@
       transition: transform .16s, box-shadow .16s;
     }
     .inv-card:hover { transform: translateY(-2px); box-shadow: 0 14px 36px rgba(12,24,35,.2); }
+    .inv-card.selected { border-color: var(--accent); box-shadow: 0 14px 36px rgba(12,24,35,.22); }
     .inv-thumb {
       width: 100%;
       height: 170px;
@@ -712,7 +794,46 @@
                   <button class="primary" id="calculateBtn" type="button"><i data-lucide="calculator"></i> Calculate Offer</button>
                   <button class="secondary" id="reasoningBtn" type="button" hidden><i data-lucide="sparkles"></i> Reasoning</button>
                   <button class="secondary" id="trendBtn" type="button" hidden><i data-lucide="trending-down"></i> Trends</button>
-                  <button class="secondary" id="toAppointmentBtn" type="button" hidden><i data-lucide="calendar-plus"></i> Book Appointment</button>
+                  <button class="secondary" id="toDealBtn" type="button" hidden><i data-lucide="calculator"></i> Estimate Deal</button>
+                  <button class="secondary" id="toAppointmentBtn" type="button" hidden><i data-lucide="calendar-plus"></i> Book Appraisal</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="screen" data-screen="deal">
+              <h2>Deal Estimate</h2>
+              <p class="screen-note">Apply the trade offer to a selected purchase vehicle before booking the showroom visit.</p>
+              <div class="deal-layout">
+                <div class="deal-panel">
+                  <h3>Selected Purchase</h3>
+                  <div id="dealVehicle"></div>
+                  <div class="deal-actions">
+                    <button class="secondary" id="browseDealInventoryBtn" type="button"><i data-lucide="search"></i> Browse Inventory</button>
+                  </div>
+                </div>
+                <div class="deal-panel">
+                  <h3>Estimate Controls</h3>
+                  <div class="grid">
+                    <div class="field"><label for="dealDownPayment">Down payment</label><input id="dealDownPayment" inputmode="numeric" placeholder="0"></div>
+                    <div class="field">
+                      <label for="dealTerm">Term</label>
+                      <select id="dealTerm">
+                        <option value="36">36 months</option>
+                        <option value="48">48 months</option>
+                        <option value="60" selected>60 months</option>
+                        <option value="72">72 months</option>
+                      </select>
+                    </div>
+                    <div class="field"><label for="dealApr">APR</label><input id="dealApr" inputmode="decimal" value="7.9"></div>
+                  </div>
+                  <div class="status-line" id="dealStatus">Select a purchase vehicle.</div>
+                </div>
+              </div>
+              <div id="dealSummary" style="margin-top:18px;"></div>
+              <div class="actions">
+                <button class="ghost" type="button" data-prev><i data-lucide="arrow-left"></i> Back</button>
+                <div class="right">
+                  <button class="primary" id="dealToAppointmentBtn" type="button"><i data-lucide="calendar-plus"></i> Book Deal Appointment</button>
                 </div>
               </div>
             </section>
@@ -720,6 +841,7 @@
             <section class="screen" data-screen="appointment">
               <h2>Appointment Booking</h2>
               <p class="screen-note">Reserve a showroom appraisal time and attach contact details to the lead record.</p>
+              <div class="appointment-context" id="appointmentDealSummary"></div>
               <div class="grid">
                 <div class="field"><label for="customerName">Name</label><input id="customerName" autocomplete="name"></div>
                 <div class="field"><label for="customerEmail">Email</label><input id="customerEmail" type="email" autocomplete="email"></div>
@@ -744,6 +866,7 @@
                 <div class="offer-value" id="confirmationValue">$0</div>
                 <div class="offer-meta" id="confirmationMeta"></div>
               </div>
+              <div class="appointment-context" id="confirmationDeal"></div>
               <div class="incentive-list" id="confirmationIncentives"></div>
               <div class="actions">
                 <button class="secondary" type="button" onclick="window.print()"><i data-lucide="printer"></i> Print</button>
@@ -909,6 +1032,7 @@
     function buildInvCard(v) {
       const card = document.createElement("div");
       card.className = "inv-card";
+      if (isSelectedPurchase(v)) card.classList.add("selected");
 
       const images = Array.isArray(v.images) ? v.images : [];
       const imgSrc = images[0] || "";
@@ -972,13 +1096,21 @@
 
       const actions = document.createElement("div");
       actions.className = "inv-actions";
+      const selectBtn = document.createElement("button");
+      selectBtn.type = "button";
+      selectBtn.className = "inv-btn-primary";
+      selectBtn.textContent = isSelectedPurchase(v)
+        ? "Selected"
+        : (state.valuation ? "Estimate Deal" : "Select Purchase");
+      selectBtn.addEventListener("click", () => selectPurchaseVehicle(v));
+      actions.appendChild(selectBtn);
       if (v.detail_url) {
         const link = document.createElement("a");
-        link.className = "inv-btn-primary";
+        link.className = "inv-btn-secondary";
         link.href = v.detail_url;
         link.target = "_blank";
         link.rel = "noopener noreferrer";
-        link.textContent = "View details";
+        link.textContent = "Details";
         actions.appendChild(link);
       }
       const callBtn = document.createElement("a");
@@ -986,7 +1118,7 @@
       const phone = window.AUTOTRADE.dealer.phone || "";
       if (phone) {
         callBtn.href = "tel:" + phone.replace(/\D/g, "");
-        callBtn.textContent = "Call dealer";
+        callBtn.textContent = "Call";
       } else {
         callBtn.style.display = "none";
       }
@@ -995,6 +1127,56 @@
 
       card.appendChild(body);
       return card;
+    }
+
+    function purchaseKey(vehicle) {
+      if (!vehicle) return "";
+      const direct = vehicle.id || vehicle.stock_number || vehicle.vin || vehicle.detail_url;
+      if (direct) return String(direct);
+      return vehicleName(vehicle).toLowerCase();
+    }
+
+    function isSelectedPurchase(vehicle) {
+      return Boolean(state.selectedPurchase && purchaseKey(state.selectedPurchase) === purchaseKey(vehicle));
+    }
+
+    function normalizePurchaseVehicle(vehicle) {
+      const images = Array.isArray(vehicle.images) ? vehicle.images.filter(Boolean) : [];
+      return {
+        id: vehicle.id || null,
+        stock_number: vehicle.stock_number || "",
+        vin: vehicle.vin || "",
+        year: vehicle.year || "",
+        make: vehicle.make || "",
+        model: vehicle.model || "",
+        trim: vehicle.trim || "",
+        body_style: vehicle.body_style || "",
+        price: Number(vehicle.price || 0),
+        mileage: Number(vehicle.mileage || 0),
+        ext_color: vehicle.ext_color || "",
+        detail_url: vehicle.detail_url || "",
+        images
+      };
+    }
+
+    function selectPurchaseVehicle(vehicle) {
+      state.selectedPurchase = normalizePurchaseVehicle(vehicle);
+      state.dealEstimate = null;
+      refreshInventoryCards();
+      renderDealEstimate();
+      if (state.valuation) {
+        go(6);
+        scrollToAppPanel();
+      } else {
+        go(0);
+        setStatus("vinStatus", "Purchase selected. Complete the trade quote to estimate the deal.", false);
+        scrollToAppPanel();
+      }
+    }
+
+    function refreshInventoryCards() {
+      if (!inv.loaded) return;
+      filterInventory();
     }
 
     function showInventorySection() {
@@ -1013,12 +1195,21 @@
       });
     }
 
+    function scrollToAppPanel() {
+      requestAnimationFrame(() => {
+        const panel = document.querySelector(".app-panel");
+        if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
 
-    const steps = ["vin", "mileage", "condition", "photos", "incentives", "valuation", "appointment", "confirmation"];
-    const stepLabels = ["Vehicle", "Mileage", "Condition", "Photos", "Perks", "Offer", "Booking", "Done"];
+
+    const steps = ["vin", "mileage", "condition", "photos", "incentives", "valuation", "deal", "appointment", "confirmation"];
+    const stepLabels = ["Vehicle", "Mileage", "Condition", "Photos", "Perks", "Offer", "Deal", "Booking", "Done"];
     const revealRank = { vin: 0, mileage: 1, condition: 2, photos: 3, offer: 5 };
     const CUSTOM_VALUE = "__custom__";
     const SEARCHABLE_SELECT_IDS = ["year", "make", "model", "trim", "bodyStyle"];
+    const DEAL_TAX_RATE = 0.07;
+    const DEAL_DOC_FEE = 899;
     const searchableSelects = {};
     const state = {
       step: 0,
@@ -1031,6 +1222,8 @@
       pricingReasoningError: "",
       pricingReasoningPromise: null,
       pricingReasoningPublicId: "",
+      selectedPurchase: null,
+      dealEstimate: null,
       appointment: null
     };
     const money = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -1067,7 +1260,22 @@
       document.getElementById("reasoningModal").addEventListener("click", event => {
         if (event.target.id === "reasoningModal") closePricingReasoning();
       });
-      document.getElementById("toAppointmentBtn").addEventListener("click", () => go(6));
+      document.getElementById("toDealBtn").addEventListener("click", openDealEstimate);
+      document.getElementById("toAppointmentBtn").addEventListener("click", () => go(7));
+      document.getElementById("browseDealInventoryBtn").addEventListener("click", skipToInventory);
+      document.getElementById("dealToAppointmentBtn").addEventListener("click", () => {
+        if (!state.valuation) return setStatus("dealStatus", "Calculate an offer first.", true);
+        if (!state.selectedPurchase) {
+          skipToInventory();
+          return setStatus("dealStatus", "Select a purchase vehicle from inventory.", true);
+        }
+        renderDealEstimate();
+        go(7);
+      });
+      ["dealDownPayment", "dealTerm", "dealApr"].forEach(id => {
+        document.getElementById(id).addEventListener("input", renderDealEstimate);
+        document.getElementById(id).addEventListener("change", renderDealEstimate);
+      });
       document.getElementById("bookBtn").addEventListener("click", bookAppointment);
       initSearchableSelects();
       initVehicleSelectors();
@@ -1535,8 +1743,8 @@
       state.step = index;
       update();
       maybeAutoGenerateValuation();
-      // Show inventory section when the user reaches confirmation (step 7)
-      if (index >= 7) {
+      if (steps[index] === "deal") renderDealEstimate();
+      if (index >= 8) {
         showInventorySection();
       }
     }
@@ -1549,8 +1757,13 @@
       });
       renderIncentives();
       renderVehicleStrip();
+      renderAppointmentContext();
       const sideStatus = document.getElementById("sideStatus");
-      sideStatus.textContent = state.valuation ? `Offer ${money.format(state.valuation.trade_offer)} valid through ${formatDate(state.valuation.offer_expires_at)}` : `${stepLabels[state.step]} active`;
+      if (state.dealEstimate && state.selectedPurchase) {
+        sideStatus.textContent = `Deal estimate ${money.format(state.dealEstimate.net_after_trade)} before final review`;
+      } else {
+        sideStatus.textContent = state.valuation ? `Offer ${money.format(state.valuation.trade_offer)} valid through ${formatDate(state.valuation.offer_expires_at)}` : `${stepLabels[state.step]} active`;
+      }
       if (window.lucide) window.lucide.createIcons();
     }
 
@@ -1688,6 +1901,7 @@
       state.valuation = null;
       document.getElementById("offerBand").hidden = true;
       document.getElementById("trendBtn").hidden = true;
+      document.getElementById("toDealBtn").hidden = true;
       document.getElementById("toAppointmentBtn").hidden = true;
       state.pricingReasoning = null;
       state.pricingReasoningError = "";
@@ -1760,7 +1974,10 @@
       if (state.pricingReasoningPromise) setReasoningButtonState("generating");
       else if (state.pricingReasoning && state.pricingReasoningPublicId === state.valuation.public_id) setReasoningButtonState("ready");
       else setReasoningButtonState("idle");
+      document.getElementById("toDealBtn").hidden = false;
       document.getElementById("toAppointmentBtn").hidden = false;
+      renderDealEstimate();
+      refreshInventoryCards();
     }
 
     async function openPricingReasoning() {
@@ -1887,6 +2104,162 @@
         button.innerHTML = `<i data-lucide="sparkles"></i> Reasoning`;
       }
       if (window.lucide) window.lucide.createIcons();
+    }
+
+    function openDealEstimate() {
+      if (!state.valuation) return setStatus("valuationStatus", "Calculate an offer first.", true);
+      go(6);
+      if (!state.selectedPurchase) showInventorySection();
+    }
+
+    function renderDealEstimate() {
+      const vehicleNode = document.getElementById("dealVehicle");
+      const summaryNode = document.getElementById("dealSummary");
+      const status = document.getElementById("dealStatus");
+      const button = document.getElementById("dealToAppointmentBtn");
+      if (!vehicleNode || !summaryNode || !status || !button) return;
+
+      if (!state.valuation) {
+        state.dealEstimate = null;
+        vehicleNode.innerHTML = `<div class="status-line">Trade offer pending.</div>`;
+        summaryNode.innerHTML = "";
+        status.className = "status-line error";
+        status.textContent = "Calculate a trade offer first.";
+        button.disabled = true;
+        return;
+      }
+
+      if (!state.selectedPurchase) {
+        state.dealEstimate = null;
+        vehicleNode.innerHTML = `<div class="status-line">No purchase vehicle selected.</div>`;
+        summaryNode.innerHTML = "";
+        status.className = "status-line";
+        status.textContent = "Select a purchase vehicle from inventory.";
+        button.disabled = true;
+        return;
+      }
+
+      vehicleNode.innerHTML = purchaseVehicleHtml(state.selectedPurchase);
+      const estimate = calculateDealEstimate();
+      state.dealEstimate = estimate;
+      button.disabled = false;
+
+      if (!estimate) {
+        summaryNode.innerHTML = `<div class="status-line error">Dealer price is required for a deal estimate.</div>`;
+        status.className = "status-line";
+        status.textContent = "Purchase vehicle selected. Booking can continue.";
+        renderAppointmentContext();
+        return;
+      }
+
+      summaryNode.innerHTML = dealSummaryHtml(estimate);
+      status.className = "status-line success";
+      status.textContent = "Deal estimate ready.";
+      renderAppointmentContext();
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function purchaseVehicleHtml(vehicle) {
+      const title = escapeHtml(vehicleName(vehicle) || "Selected vehicle");
+      const image = Array.isArray(vehicle.images) && vehicle.images.length ? vehicle.images[0] : "";
+      const thumb = image
+        ? `<img class="deal-thumb" src="${escapeAttr(image)}" alt="">`
+        : `<div class="deal-thumb-placeholder">ATP</div>`;
+      const meta = [];
+      if (vehicle.price) meta.push(money.format(vehicle.price));
+      if (vehicle.mileage) meta.push(`${Number(vehicle.mileage).toLocaleString()} mi`);
+      if (vehicle.ext_color) meta.push(escapeHtml(vehicle.ext_color));
+      if (vehicle.body_style) meta.push(escapeHtml(vehicle.body_style));
+      if (vehicle.stock_number) meta.push(`Stock ${escapeHtml(vehicle.stock_number)}`);
+      return `
+        <div class="deal-vehicle">
+          ${thumb}
+          <div>
+            <h3 class="deal-title">${title}</h3>
+            <div class="deal-meta">${meta.map(item => `<span>${item}</span>`).join("")}</div>
+            ${vehicle.detail_url ? `<div class="deal-actions"><a class="secondary" style="text-decoration:none; min-height:38px; display:inline-flex; align-items:center; padding:8px 12px; border-radius:6px;" href="${escapeAttr(vehicle.detail_url)}" target="_blank" rel="noopener noreferrer"><i data-lucide="external-link"></i> Details</a></div>` : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    function calculateDealEstimate() {
+      if (!state.valuation || !state.selectedPurchase) return null;
+      const purchasePrice = Number(state.selectedPurchase.price || 0);
+      if (!purchasePrice) return null;
+      const tradeOffer = Number(state.valuation.trade_offer || 0);
+      const taxesAndFees = Math.round(Math.max(purchasePrice - tradeOffer, 0) * DEAL_TAX_RATE + DEAL_DOC_FEE);
+      const netAfterTrade = Math.max(purchasePrice - tradeOffer + taxesAndFees, 0);
+      const downPayment = Math.min(readMoneyInput("dealDownPayment"), netAfterTrade);
+      const amountFinanced = Math.max(netAfterTrade - downPayment, 0);
+      const termMonths = Number(document.getElementById("dealTerm").value || 60);
+      const aprPercent = readPercentInput("dealApr");
+      const monthlyPayment = estimateMonthlyPayment(amountFinanced, aprPercent, termMonths);
+      return {
+        purchase_price: Math.round(purchasePrice),
+        trade_offer: Math.round(tradeOffer),
+        taxes_and_fees: taxesAndFees,
+        doc_fee: DEAL_DOC_FEE,
+        net_after_trade: Math.round(netAfterTrade),
+        down_payment: Math.round(downPayment),
+        amount_financed: Math.round(amountFinanced),
+        monthly_payment: Math.round(monthlyPayment),
+        term_months: termMonths,
+        apr_percent: aprPercent
+      };
+    }
+
+    function dealSummaryHtml(estimate) {
+      const metrics = [
+        ["Purchase price", money.format(estimate.purchase_price)],
+        ["Trade credit", `-${money.format(estimate.trade_offer)}`],
+        ["Est. tax and fees", money.format(estimate.taxes_and_fees)],
+        ["Down payment", `-${money.format(estimate.down_payment)}`],
+        ["Amount financed", money.format(estimate.amount_financed)],
+        ["Est. monthly", money.format(estimate.monthly_payment)]
+      ];
+      return `
+        <div class="deal-summary">
+          ${metrics.map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join("")}
+        </div>
+        <div class="metric deal-total"><span>Estimated balance after trade</span><strong>${money.format(estimate.net_after_trade)}</strong></div>
+        <p class="trend-note">Estimate uses ${Math.round(DEAL_TAX_RATE * 10000) / 100}% tax plus ${money.format(DEAL_DOC_FEE)} fees. Final figures depend on lender approval, tax rules, title, payoff, and vehicle verification.</p>
+      `;
+    }
+
+    function renderAppointmentContext() {
+      const node = document.getElementById("appointmentDealSummary");
+      if (!node) return;
+      if (!state.valuation || !state.selectedPurchase) {
+        node.innerHTML = "";
+        return;
+      }
+      const estimate = state.dealEstimate || calculateDealEstimate();
+      node.innerHTML = `
+        <div class="deal-panel">
+          ${purchaseVehicleHtml(state.selectedPurchase)}
+          ${estimate ? `<div style="margin-top:14px;">${dealSummaryHtml(estimate)}</div>` : ""}
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    function readMoneyInput(id) {
+      const value = document.getElementById(id).value || "";
+      return Math.max(0, Number(String(value).replace(/[^0-9.]/g, "")) || 0);
+    }
+
+    function readPercentInput(id) {
+      const value = document.getElementById(id).value || "";
+      const parsed = Number(String(value).replace(/[^0-9.]/g, ""));
+      return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+    }
+
+    function estimateMonthlyPayment(amount, aprPercent, termMonths) {
+      if (!amount || !termMonths) return 0;
+      const monthlyRate = aprPercent / 100 / 12;
+      if (!monthlyRate) return amount / termMonths;
+      return amount * monthlyRate / (1 - Math.pow(1 + monthlyRate, -termMonths));
     }
 
     async function openTrend() {
@@ -2046,7 +2419,10 @@
         scheduled_date: document.getElementById("appointmentDate").value,
         scheduled_time: document.getElementById("appointmentTime").value,
         notes: document.getElementById("appointmentNotes").value.trim(),
-        marketing_consent: document.getElementById("marketingConsent").checked
+        marketing_consent: document.getElementById("marketingConsent").checked,
+        appointment_type: state.selectedPurchase ? "trade_purchase" : "trade_appraisal",
+        purchase_vehicle: state.selectedPurchase,
+        deal_estimate: state.selectedPurchase ? (state.dealEstimate || calculateDealEstimate() || {}) : {}
       };
       if (!payload.name || !payload.email || !payload.phone || !payload.scheduled_date) {
         return setStatus("appointmentStatus", "Name, email, phone, date, and time are required.", true);
@@ -2067,7 +2443,7 @@
         }
         state.appointment = result.valuation;
         renderConfirmation(result.valuation);
-        go(7);
+        go(8);
       } catch (error) {
         status.className = "status-line error";
         status.textContent = error.message;
@@ -2105,8 +2481,27 @@
       document.getElementById("confirmationMeta").innerHTML = `
         <span>${valuation.confirmation_code}</span>
         <span>${valuation.scheduled_date} at ${valuation.scheduled_time}</span>
+        <span>${valuation.appointment_type === "trade_purchase" ? "Trade + purchase" : "Trade appraisal"}</span>
         <span>${address}</span>
       `;
+      renderConfirmationDeal();
+    }
+
+    function renderConfirmationDeal() {
+      const node = document.getElementById("confirmationDeal");
+      if (!node) return;
+      if (!state.selectedPurchase) {
+        node.innerHTML = "";
+        return;
+      }
+      const estimate = state.dealEstimate || calculateDealEstimate();
+      node.innerHTML = `
+        <div class="deal-panel">
+          ${purchaseVehicleHtml(state.selectedPurchase)}
+          ${estimate ? `<div style="margin-top:14px;">${dealSummaryHtml(estimate)}</div>` : ""}
+        </div>
+      `;
+      if (window.lucide) window.lucide.createIcons();
     }
 
     function vehicleName(vehicle) {

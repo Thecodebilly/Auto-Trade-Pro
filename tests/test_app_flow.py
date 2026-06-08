@@ -127,13 +127,59 @@ def test_public_valuation_and_appointment_flow(tmp_path):
             "scheduled_time": "10:00 AM",
             "notes": "Interested in a hybrid SUV.",
             "marketing_consent": True,
+            "appointment_type": "trade_purchase",
+            "purchase_vehicle": {
+                "id": 101,
+                "stock_number": "ATP1001",
+                "vin": "4T3RWRFV8RU000001",
+                "year": 2024,
+                "make": "TOYOTA",
+                "model": "RAV4",
+                "trim": "XLE Hybrid",
+                "body_style": "SUV",
+                "price": 34250,
+                "mileage": 12,
+                "detail_url": "https://exampledealer.test/inventory/atp1001",
+            },
+            "deal_estimate": {
+                "purchase_price": 34250,
+                "trade_offer": valuation["trade_offer"],
+                "taxes_and_fees": 2100,
+                "doc_fee": 899,
+                "net_after_trade": 34250 - valuation["trade_offer"] + 2100,
+                "down_payment": 1000,
+                "amount_financed": 34250 - valuation["trade_offer"] + 1100,
+                "monthly_payment": 520,
+                "term_months": 60,
+                "apr_percent": 7.9,
+            },
         },
     )
 
     assert appointment_response.status_code == 200
     appointment_payload = appointment_response.get_json()
     assert appointment_payload["valuation"]["appointment_status"] == "booked"
+    assert appointment_payload["valuation"]["appointment_type"] == "trade_purchase"
     assert appointment_payload["valuation"]["confirmation_code"].startswith("AT-")
+    assert "TOYOTA RAV4 XLE Hybrid" in appointment_payload["valuation"]["appointment_notes"]
+    assert "Estimated monthly payment: $520" in appointment_payload["valuation"]["appointment_notes"]
+
+
+def test_public_inventory_returns_seeded_demo_vehicles(tmp_path):
+    app = _app(tmp_path)
+    client = app.test_client()
+
+    response = client.get("/api/dealers/south-florida-demo/inventory?limit=200")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["total"] == 8
+    assert len(payload["vehicles"]) == 8
+    first = payload["vehicles"][0]
+    assert first["status"] == "active"
+    assert first["price"] > 0
+    assert first["images"]
 
 
 def test_database_backend_uses_postgres_url_when_configured(monkeypatch):

@@ -327,7 +327,8 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         appointment = {
             "scheduled_date": str(payload.get("scheduled_date", "")).strip(),
             "scheduled_time": str(payload.get("scheduled_time", "")).strip(),
-            "notes": str(payload.get("notes", "")).strip(),
+            "notes": _appointment_notes(payload),
+            "appointment_type": _appointment_type(payload),
             "confirmation_code": f"AT-{secrets.token_hex(3).upper()}",
         }
         if not all(
@@ -367,6 +368,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 "valuation": _valuation_payload(updated),
                 "customer": customer,
                 "appointment": appointment,
+                "deal": _deal_payload(payload),
             },
         )
         notification_notes = send_confirmation(config, updated)
@@ -850,6 +852,113 @@ def _dealer_public_payload(dealer: dict[str, Any]) -> dict[str, Any]:
             "max_retail_percent",
         ]
     }
+
+
+def _appointment_type(payload: dict[str, Any]) -> str:
+    requested = str(payload.get("appointment_type", "")).strip()
+    if requested in {"trade_appraisal", "trade_purchase"}:
+        return requested
+    return "trade_purchase" if _deal_payload(payload) else "trade_appraisal"
+
+
+def _appointment_notes(payload: dict[str, Any]) -> str:
+    notes = str(payload.get("notes", "")).strip()
+    deal = _deal_payload(payload)
+    if not deal:
+        return notes
+
+    purchase = deal.get("purchase_vehicle", {})
+    estimate = deal.get("deal_estimate", {})
+    summary: list[str] = []
+    if notes:
+        summary.append(notes)
+
+    vehicle_name = " ".join(
+        str(purchase.get(key, "")).strip()
+        for key in ["year", "make", "model", "trim"]
+        if str(purchase.get(key, "")).strip()
+    )
+    if vehicle_name:
+        stock = str(purchase.get("stock_number") or "").strip()
+        stock_note = f" Stock {stock}." if stock else ""
+        summary.append(f"Purchase vehicle: {vehicle_name}.{stock_note}")
+
+    estimate_lines = [
+        ("Price", estimate.get("purchase_price")),
+        ("Trade credit", estimate.get("trade_offer")),
+        ("Estimated tax and fees", estimate.get("taxes_and_fees")),
+        ("Estimated balance", estimate.get("net_after_trade")),
+        ("Down payment", estimate.get("down_payment")),
+        ("Amount financed", estimate.get("amount_financed")),
+        ("Estimated monthly payment", estimate.get("monthly_payment")),
+    ]
+    formatted = [
+        f"{label}: ${int(value):,}"
+        for label, value in estimate_lines
+        if isinstance(value, int)
+    ]
+    term = estimate.get("term_months")
+    apr = estimate.get("apr_percent")
+    if isinstance(term, int) and term > 0:
+        formatted.append(f"Term: {term} months")
+    if isinstance(apr, (int, float)) and apr >= 0:
+        formatted.append(f"APR: {apr:.2f}%")
+    if formatted:
+        summary.append("Deal estimate: " + "; ".join(formatted) + ".")
+
+    return "\n".join(summary)
+
+
+def _deal_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    purchase = payload.get("purchase_vehicle") or payload.get("selected_purchase") or {}
+    estimate = payload.get("deal_estimate") or {}
+    if not isinstance(purchase, dict):
+        purchase = {}
+    if not isinstance(estimate, dict):
+        estimate = {}
+
+    vehicle = {
+        "id": _int_or_none(purchase.get("id")),
+        "stock_number": str(purchase.get("stock_number") or "").strip(),
+        "vin": str(purchase.get("vin") or "").strip(),
+        "year": _int_or_none(purchase.get("year")),
+        "make": str(purchase.get("make") or "").strip(),
+        "model": str(purchase.get("model") or "").strip(),
+        "trim": str(purchase.get("trim") or "").strip(),
+        "body_style": str(purchase.get("body_style") or "").strip(),
+        "price": _int_or_none(purchase.get("price")),
+        "mileage": _int_or_none(purchase.get("mileage")),
+        "detail_url": str(purchase.get("detail_url") or "").strip(),
+    }
+    vehicle = {
+        key: value
+        for key, value in vehicle.items()
+        if value not in (None, "")
+    }
+
+    deal_estimate: dict[str, Any] = {}
+    integer_fields = [
+        "purchase_price",
+        "trade_offer",
+        "taxes_and_fees",
+        "doc_fee",
+        "net_after_trade",
+        "down_payment",
+        "amount_financed",
+        "monthly_payment",
+        "term_months",
+    ]
+    for field in integer_fields:
+        parsed = _int_or_none(estimate.get(field))
+        if parsed is not None:
+            deal_estimate[field] = parsed
+    apr = _float_or_default(estimate.get("apr_percent"), -1)
+    if apr >= 0:
+        deal_estimate["apr_percent"] = round(apr, 3)
+
+    if not vehicle and not deal_estimate:
+        return {}
+    return {"purchase_vehicle": vehicle, "deal_estimate": deal_estimate}
 
 
 def _valuation_payload(valuation: dict[str, Any]) -> dict[str, Any]:
