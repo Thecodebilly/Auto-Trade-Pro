@@ -1736,7 +1736,7 @@ def list_inventory_vehicles(
     dealer_id: int,
     *,
     status: str = "active",
-    limit: int = 200,
+    limit: int = 5000,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
     with connect(db_path) as conn:

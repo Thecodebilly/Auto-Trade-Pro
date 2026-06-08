@@ -36,8 +36,8 @@ except ImportError:  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 SCRAPE_TIMEOUT = 20
-MAX_VEHICLES = 300
-MAX_PAGES = 8
+MAX_VEHICLES = 5000  # effectively unlimited; set per-call via max_vehicles param
+MAX_PAGES = 25
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "

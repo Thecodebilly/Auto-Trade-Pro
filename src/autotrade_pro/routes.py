@@ -608,7 +608,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @bp.get("/api/dealers/<dealer_slug>/inventory")
     def public_inventory(dealer_slug: str) -> Response:
         dealer = _dealer_or_404(config, dealer_slug)
-        limit = min(int(request.args.get("limit", 48)), 200)
+        limit = min(int(request.args.get("limit", 200)), 5000)
         offset = int(request.args.get("offset", 0))
         vehicles = list_inventory_vehicles(
             config.database_path,
@@ -648,7 +648,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             abort(500)
         sources = list_inventory_sources(config.database_path, dealer["id"])
         vehicles = list_inventory_vehicles(
-            config.database_path, dealer["id"], status="all", limit=300
+            config.database_path, dealer["id"], status="all"
         )
         total = count_inventory_vehicles(
             config.database_path, dealer["id"], status="all"
@@ -708,6 +708,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 source["url"],
                 openai_api_key=openai_key,
                 openai_model=openai_model,
+                max_vehicles=5000,
             )
             vehicles = result.get("vehicles", [])
             errors = result.get("errors", [])

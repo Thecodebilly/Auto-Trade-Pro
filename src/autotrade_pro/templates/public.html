@@ -408,6 +408,36 @@
       border-top-color: var(--primary);
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .topbar-inv-btn {
+      background: rgba(255,255,255,.15);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.45);
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+      min-height: 36px;
+      white-space: nowrap;
+      transition: background .15s;
+    }
+    .topbar-inv-btn:hover { background: rgba(255,255,255,.28); }
+    .inv-skip-btn {
+      background: rgba(255,255,255,.18);
+      color: #fff;
+      border: 1.5px solid rgba(255,255,255,.55);
+      border-radius: 6px;
+      padding: 10px 20px;
+      font-size: 15px;
+      font-weight: 800;
+      cursor: pointer;
+      min-height: 42px;
+      transition: background .15s, transform .15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .inv-skip-btn:hover { background: rgba(255,255,255,.3); transform: translateY(1px); }
     @media (max-width: 980px) {
       .workspace { grid-template-columns: 1fr; padding-top: 10px; }
       .side-panel { position: static; }
@@ -539,6 +569,7 @@
       <div class="dealer-contact">
         <span>{{ dealer.phone }}</span>
         <span>{{ dealer.city }}, {{ dealer.state }}</span>
+        <button class="topbar-inv-btn" onclick="skipToInventory()" type="button">Browse Inventory</button>
       </div>
     </header>
 
@@ -547,6 +578,9 @@
         <div class="intro">
           <h1>Trade-In Valuation</h1>
           <p>Get a market-backed estimate, unlock dealership incentives, and reserve an appraisal appointment while your offer window is active.</p>
+          <div style="margin-top:18px;">
+            <button class="inv-skip-btn" onclick="skipToInventory()" type="button">Browse Available Inventory <span style="font-size:16px;">↓</span></button>
+          </div>
         </div>
         <div class="app-panel">
           <div class="stepbar" id="stepbar"></div>
@@ -968,6 +1002,15 @@
       if (!section) return;
       section.style.display = "";
       loadInventory();
+    }
+
+    function skipToInventory() {
+      showInventorySection();
+      // Small delay so the section is rendered before we scroll
+      requestAnimationFrame(() => {
+        const section = document.getElementById("inventorySection");
+        if (section) section.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     }
 
 
