@@ -56,6 +56,7 @@ from .database import (
     list_incentives,
     list_inventory_sources,
     list_inventory_vehicles,
+    remove_legacy_internal_inventory,
     update_dealer,
     update_incentive,
     update_inventory_source_sync_result,
@@ -612,6 +613,15 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         dealer = _dealer_or_404(config, dealer_slug)
         limit = min(int(request.args.get("limit", 200)), MAX_VEHICLES)
         offset = int(request.args.get("offset", 0))
+        removed_legacy = remove_legacy_internal_inventory(
+            config.database_path, dealer["id"]
+        )
+        sync_count = 0
+        errors: list[str] = []
+        if removed_legacy:
+            sources = _live_inventory_sources(config, dealer["id"])
+            if sources:
+                sync_count, errors = _sync_inventory_sources(config, dealer, sources)
         vehicles = list_inventory_vehicles(
             config.database_path,
             dealer["id"],
@@ -629,6 +639,8 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 "total": total,
                 "limit": limit,
                 "offset": offset,
+                "sync_count": sync_count,
+                "errors": errors,
             }
         )
 
@@ -637,11 +649,8 @@ def create_blueprint(config: AppConfig) -> Blueprint:
         dealer = _dealer_or_404(config, dealer_slug)
         limit = min(int(request.args.get("limit", 200)), MAX_VEHICLES)
         offset = int(request.args.get("offset", 0))
-        sources = [
-            source
-            for source in list_inventory_sources(config.database_path, dealer["id"])
-            if str(source.get("url", "")).lower().startswith(("http://", "https://"))
-        ]
+        remove_legacy_internal_inventory(config.database_path, dealer["id"])
+        sources = _live_inventory_sources(config, dealer["id"])
         if not sources:
             return (
                 jsonify(
@@ -657,45 +666,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 400,
             )
 
-        errors: list[str] = []
-        sync_count = 0
-        for source in sources:
-            try:
-                result = scrape_inventory(
-                    source["url"],
-                    openai_api_key=dealer.get("openai_api_key", ""),
-                    openai_model=dealer.get("openai_model", "gpt-4.1-mini"),
-                    max_vehicles=MAX_VEHICLES,
-                )
-                source_errors = result.get("errors", [])
-                vehicles = result.get("vehicles", [])
-                now = datetime.now(timezone.utc).isoformat(timespec="seconds")
-                count = upsert_inventory_vehicles(
-                    config.database_path,
-                    source["dealer_id"],
-                    source["id"],
-                    vehicles,
-                    now,
-                )
-                sync_count += count
-                update_inventory_source_sync_result(
-                    config.database_path,
-                    source["id"],
-                    count=count,
-                    status="ok",
-                    error="; ".join(source_errors) if source_errors else "",
-                )
-                errors.extend(str(error) for error in source_errors)
-            except Exception as exc:
-                message = str(exc)
-                errors.append(message)
-                update_inventory_source_sync_result(
-                    config.database_path,
-                    source["id"],
-                    count=0,
-                    status="error",
-                    error=message[:500],
-                )
+        sync_count, errors = _sync_inventory_sources(config, dealer, sources)
 
         vehicles = list_inventory_vehicles(
             config.database_path,
@@ -931,6 +902,63 @@ def _dealer_or_404(config: AppConfig, slug: str) -> dict[str, Any]:
     if dealer is None:
         abort(404)
     return dealer
+
+
+def _live_inventory_sources(
+    config: AppConfig, dealer_id: int
+) -> list[dict[str, Any]]:
+    return [
+        source
+        for source in list_inventory_sources(config.database_path, dealer_id)
+        if str(source.get("url", "")).lower().startswith(("http://", "https://"))
+    ]
+
+
+def _sync_inventory_sources(
+    config: AppConfig,
+    dealer: dict[str, Any],
+    sources: list[dict[str, Any]],
+) -> tuple[int, list[str]]:
+    errors: list[str] = []
+    sync_count = 0
+    for source in sources:
+        try:
+            result = scrape_inventory(
+                source["url"],
+                openai_api_key=dealer.get("openai_api_key", ""),
+                openai_model=dealer.get("openai_model", "gpt-4.1-mini"),
+                max_vehicles=MAX_VEHICLES,
+            )
+            source_errors = result.get("errors", [])
+            vehicles = result.get("vehicles", [])
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            count = upsert_inventory_vehicles(
+                config.database_path,
+                source["dealer_id"],
+                source["id"],
+                vehicles,
+                now,
+            )
+            sync_count += count
+            update_inventory_source_sync_result(
+                config.database_path,
+                source["id"],
+                count=count,
+                status="ok",
+                error="; ".join(source_errors) if source_errors else "",
+            )
+            errors.extend(str(error) for error in source_errors)
+        except Exception as exc:
+            message = str(exc)
+            errors.append(message)
+            update_inventory_source_sync_result(
+                config.database_path,
+                source["id"],
+                count=0,
+                status="error",
+                error=message[:500],
+            )
+    return sync_count, errors
 
 
 def _dealer_public_payload(dealer: dict[str, Any]) -> dict[str, Any]:

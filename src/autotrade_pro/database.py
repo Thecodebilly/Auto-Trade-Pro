@@ -809,7 +809,8 @@ def _seed_dealer(conn: Any, default_slug: str, now: str) -> int:
     return int(row["id"])
 
 
-def _remove_internal_inventory(conn: Any, dealer_id: int) -> None:
+def _remove_internal_inventory(conn: Any, dealer_id: int) -> int:
+    removed = 0
     legacy_sources = conn.execute(
         """
         SELECT id
@@ -822,6 +823,15 @@ def _remove_internal_inventory(conn: Any, dealer_id: int) -> None:
     source_ids = [row["id"] for row in legacy_sources]
     if source_ids:
         placeholders = ", ".join("?" for _ in source_ids)
+        row = conn.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM inventory_vehicles
+            WHERE dealer_id = ? AND source_id IN ({placeholders})
+            """,
+            (dealer_id, *source_ids),
+        ).fetchone()
+        removed += int(row["count"] if row else 0)
         conn.execute(
             f"""
             DELETE FROM inventory_vehicles
@@ -837,6 +847,24 @@ def _remove_internal_inventory(conn: Any, dealer_id: int) -> None:
             (dealer_id, *source_ids),
         )
 
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS count
+        FROM inventory_vehicles
+        WHERE dealer_id = ?
+          AND stock_number IN (
+              'ATP1001', 'ATP1002', 'ATP1003', 'ATP1004',
+              'ATP1005', 'ATP1006', 'ATP1007', 'ATP1008'
+          )
+          AND (
+              external_id LIKE 'demo-%'
+              OR external_id LIKE 'inventory-%'
+              OR notes IN ('Seeded demo inventory', 'Showroom inventory')
+          )
+        """,
+        (dealer_id,),
+    ).fetchone()
+    removed += int(row["count"] if row else 0)
     conn.execute(
         """
         DELETE FROM inventory_vehicles
@@ -853,6 +881,15 @@ def _remove_internal_inventory(conn: Any, dealer_id: int) -> None:
         """,
         (dealer_id,),
     )
+    return removed
+
+
+def remove_legacy_internal_inventory(db_path: Path, dealer_id: int) -> int:
+    """Delete old bundled demo inventory rows for a dealer."""
+    with connect(db_path) as conn:
+        removed = _remove_internal_inventory(conn, dealer_id)
+        conn.commit()
+        return removed
 
 
 def _ensure_default_inventory_sources(conn: Any, dealer_id: int, now: str) -> None:

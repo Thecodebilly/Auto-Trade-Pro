@@ -188,6 +188,92 @@ def test_public_inventory_defaults_to_erdman_sources_without_cached_vehicles(tmp
     }
 
 
+def test_public_inventory_get_replaces_legacy_showroom_cache_with_live_scan(
+    tmp_path, monkeypatch
+):
+    app = _app(tmp_path)
+    client = app.test_client()
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+
+    with connect(tmp_path / "autotrade.db") as conn:
+        source_id = conn.execute(
+            """
+            INSERT INTO inventory_sources (
+                dealer_id, url, label, auto_sync_enabled,
+                last_sync_status, created_at, updated_at
+            )
+            VALUES (1, 'inventory://south-florida-showroom', 'Showroom inventory', 0, 'success', 'now', 'now')
+            """
+        ).lastrowid
+        conn.execute(
+            """
+            INSERT INTO inventory_vehicles (
+                dealer_id, source_id, external_id, stock_number,
+                year, make, model, trim, body_style, price, mileage,
+                images_json, status, notes, created_at, updated_at
+            )
+            VALUES (
+                1, ?, 'inventory-rav4-hybrid', 'ATP1001',
+                2024, 'TOYOTA', 'RAV4', 'XLE Hybrid', 'SUV', 34250, 12,
+                '[]', 'active', 'Showroom inventory', 'now', 'now'
+            )
+            """,
+            (source_id,),
+        )
+        conn.commit()
+
+    captured: list[tuple[str, dict]] = []
+
+    def fake_scrape_inventory(url, **kwargs):
+        captured.append((url, kwargs))
+        if "new-vehicles" not in url:
+            return {"vehicles": [], "total": 0, "source": "test", "errors": []}
+        return {
+            "vehicles": [
+                {
+                    "external_id": f"live-{index}",
+                    "stock_number": f"LIVE{index:04d}",
+                    "year": 2025,
+                    "make": "TOYOTA",
+                    "model": "RAV4",
+                    "trim": "XLE",
+                    "body_style": "SUV",
+                    "price": 35000 + index,
+                    "mileage": index,
+                }
+                for index in range(12)
+            ],
+            "total": 12,
+            "source": "test",
+            "errors": [],
+        }
+
+    monkeypatch.setattr("autotrade_pro.routes.scrape_inventory", fake_scrape_inventory)
+
+    response = client.get("/api/dealers/south-florida-demo/inventory?limit=200")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["total"] == 12
+    assert payload["sync_count"] == 12
+    assert len(payload["vehicles"]) == 12
+    assert all(
+        not str(vehicle["source_url"]).startswith("inventory://")
+        for vehicle in payload["vehicles"]
+    )
+    assert {url for url, _kwargs in captured} == {
+        url for url, _label in DEFAULT_INVENTORY_SOURCES
+    }
+    assert all(call_kwargs["max_vehicles"] == 5000 for _url, call_kwargs in captured)
+
+    with connect(tmp_path / "autotrade.db") as conn:
+        legacy = conn.execute(
+            "SELECT COUNT(*) AS count FROM inventory_sources WHERE url LIKE 'inventory://%'"
+        ).fetchone()
+    assert legacy["count"] == 0
+
+
 def test_public_inventory_refresh_fetches_default_erdman_sources(tmp_path, monkeypatch):
     app = _app(tmp_path)
     client = app.test_client()
