@@ -432,7 +432,7 @@
       const data = await resp.json();
       const vehicles = data.vehicles || [];
       const errors = data.errors || [];
-      let html = `<p><strong>Strategy: ${data.source || "none"}</strong> &nbsp;·&nbsp; Found ${data.total || 0} vehicles (showing up to 10)</p>`;
+      let html = `<p><strong>Strategy: ${data.source || "none"}</strong> &nbsp;·&nbsp; Found ${data.total || 0} vehicles</p>`;
       if (errors.length) {
         html += `<p style="color:var(--bad);">Warnings: ${errors.join("; ")}</p>`;
       }

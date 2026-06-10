@@ -62,6 +62,7 @@ from .database import (
     update_inventory_vehicle,
     upsert_inventory_vehicles,
 )
+from .inventory_scraper import MAX_VEHICLES, scrape_inventory
 from .market_data import MarketDataAggregator, import_market_csv
 from .notifications import send_confirmation
 from .trends import build_trade_value_trend
@@ -69,7 +70,6 @@ from .valuation import build_valuation_record, calculate_valuation
 from .vehicle_options import BODY_STYLES, VehicleOptionsClient
 from .vin import NhtsaVinDecoder, VinDecodeError, fallback_decode, normalize_vin
 from .workers import refresh_market_data_once
-from .inventory_scraper import scrape_inventory
 
 
 def create_blueprint(config: AppConfig) -> Blueprint:
@@ -610,7 +610,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @bp.get("/api/dealers/<dealer_slug>/inventory")
     def public_inventory(dealer_slug: str) -> Response:
         dealer = _dealer_or_404(config, dealer_slug)
-        limit = min(int(request.args.get("limit", 200)), 5000)
+        limit = min(int(request.args.get("limit", 200)), MAX_VEHICLES)
         offset = int(request.args.get("offset", 0))
         vehicles = list_inventory_vehicles(
             config.database_path,
@@ -635,7 +635,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @bp.post("/api/dealers/<dealer_slug>/inventory/refresh")
     def public_inventory_refresh(dealer_slug: str) -> Response:
         dealer = _dealer_or_404(config, dealer_slug)
-        limit = min(int(request.args.get("limit", 200)), 5000)
+        limit = min(int(request.args.get("limit", 200)), MAX_VEHICLES)
         offset = int(request.args.get("offset", 0))
         sources = [
             source
@@ -665,7 +665,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                     source["url"],
                     openai_api_key=dealer.get("openai_api_key", ""),
                     openai_model=dealer.get("openai_model", "gpt-4.1-mini"),
-                    max_vehicles=5000,
+                    max_vehicles=MAX_VEHICLES,
                 )
                 source_errors = result.get("errors", [])
                 vehicles = result.get("vehicles", [])
@@ -813,7 +813,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
                 source["url"],
                 openai_api_key=openai_key,
                 openai_model=openai_model,
-                max_vehicles=5000,
+                max_vehicles=MAX_VEHICLES,
             )
             vehicles = result.get("vehicles", [])
             errors = result.get("errors", [])
@@ -879,7 +879,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
             source["url"],
             openai_api_key=openai_key,
             openai_model=openai_model,
-            max_vehicles=10,
+            max_vehicles=MAX_VEHICLES,
         )
         return jsonify({"ok": True, **result})
 

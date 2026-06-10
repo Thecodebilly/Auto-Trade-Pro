@@ -252,6 +252,43 @@ def test_public_inventory_refresh_fetches_default_erdman_sources(tmp_path, monke
     assert cached.get_json()["total"] == 1
 
 
+def test_admin_inventory_preview_scans_full_source(tmp_path, monkeypatch):
+    app = _app(tmp_path)
+    client = app.test_client()
+    dealer = fetch_dealer_by_slug(tmp_path / "autotrade.db", "south-florida-demo")
+    source = list_inventory_sources(tmp_path / "autotrade.db", dealer["id"])[0]
+    captured: list[dict] = []
+
+    def fake_scrape_inventory(url, **kwargs):
+        captured.append({"url": url, **kwargs})
+        return {
+            "vehicles": [],
+            "total": 0,
+            "source": "test",
+            "errors": [],
+        }
+
+    monkeypatch.setattr("autotrade_pro.routes.scrape_inventory", fake_scrape_inventory)
+
+    client.post("/admin/login", data={"password": "test-pass"})
+    response = client.post(
+        f"/admin/inventory/sources/{source['id']}/scrape-preview",
+        data={"dealer_slug": "south-florida-demo"},
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert captured == [
+        {
+            "url": source["url"],
+            "openai_api_key": "",
+            "openai_model": "gpt-4.1-mini",
+            "max_vehicles": 5000,
+        }
+    ]
+
+
 def test_inventory_listing_prefers_real_photos_over_newer_renders(tmp_path):
     _app(tmp_path)
 
