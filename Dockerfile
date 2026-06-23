@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m playwright install --with-deps chromium
 
 COPY server.py .
 COPY wsgi.py .

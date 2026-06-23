@@ -24,6 +24,20 @@ from typing import Any
 import requests
 
 try:
+    from playwright.sync_api import (
+        Error as PlaywrightError,
+        TimeoutError as PlaywrightTimeoutError,
+        sync_playwright,
+    )
+
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional fallback for minimal installs
+    PlaywrightError = Exception
+    PlaywrightTimeoutError = TimeoutError
+    sync_playwright = None
+    PLAYWRIGHT_AVAILABLE = False
+
+try:
     from bs4 import BeautifulSoup
 
     BS4_AVAILABLE = True
@@ -37,7 +51,14 @@ except ImportError:  # pragma: no cover
 
 SCRAPE_TIMEOUT = 20
 MAX_VEHICLES = 5000  # effectively unlimited; set per-call via max_vehicles param
-MAX_PAGES = 25
+MAX_PAGES = 200
+PLAYWRIGHT_NAVIGATION_TIMEOUT_MS = 25_000
+PLAYWRIGHT_NETWORK_IDLE_TIMEOUT_MS = 4_000
+PLAYWRIGHT_SETTLE_MS = 800
+PLAYWRIGHT_SCROLL_STEPS = 36
+PLAYWRIGHT_MAX_RESPONSE_BYTES = 25_000_000
+PLAYWRIGHT_SMALL_JSON_BYTES = 2_000_000
+PLAYWRIGHT_DISCOVERY_LIMIT = 8
 _USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -73,6 +94,52 @@ _REAL_IMAGE_MARKERS = (
     "photo",
     "vehicle-media",
 )
+_PLAYWRIGHT_BROWSER_ARGS = (
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+)
+_INVENTORY_RESPONSE_MARKERS = (
+    "api",
+    "ajax",
+    "cars",
+    "graphql",
+    "inventory",
+    "listing",
+    "listings",
+    "search",
+    "srp",
+    "vehicle",
+    "vehicles",
+)
+_INVENTORY_CATEGORY_MARKERS = (
+    "all inventory",
+    "all vehicles",
+    "all cars",
+    "inventory",
+    "new inventory",
+    "new vehicles",
+    "new cars",
+    "pre-owned",
+    "preowned",
+    "used inventory",
+    "used vehicles",
+    "used cars",
+    "certified inventory",
+    "certified vehicles",
+)
+_NON_INVENTORY_LINK_MARKERS = (
+    "appointment",
+    "blog",
+    "careers",
+    "contact",
+    "finance",
+    "parts",
+    "privacy",
+    "service",
+    "special",
+    "trade",
+)
 
 
 def scrape_inventory(
@@ -94,38 +161,124 @@ def scrape_inventory(
             "errors": [...],
         }
     """
-    vehicles: list[dict[str, Any]] = []
     errors: list[str] = []
-    source = "none"
 
-    # -- Strategy 0: Typesense InstantSearch (many OEM dealer sites) --------
-    # Detect on first page fetch, then bypass HTML pagination entirely.
+    # Fast paths for direct feeds/search adapters. These already expose the full
+    # inventory without needing a rendered browser session.
     html0, final_url0, err0 = _fetch_page(url)
     if err0:
         errors.append(err0)
     else:
+        feed_vehicles, feed_source = _extract_page_vehicles(
+            html0,
+            final_url0,
+            openai_api_key="",
+            openai_model=openai_model,
+            allow_ai=False,
+            feeds_only=True,
+        )
+        if feed_vehicles:
+            return _scrape_result(
+                feed_vehicles,
+                feed_source,
+                url,
+                errors,
+                max_vehicles,
+            )
+
         ts_result = _try_typesense(html0, url, max_vehicles)
         if ts_result is not None:
             ts_vehicles, ts_err = ts_result
             if ts_err:
                 errors.append(ts_err)
             if ts_vehicles:
-                vehicles = [_normalise(v) for v in ts_vehicles[:max_vehicles]]
-                return {
-                    "vehicles": vehicles,
-                    "total": len(vehicles),
-                    "source": "typesense",
-                    "scraped_url": url,
-                    "errors": errors,
-                }
+                return _scrape_result(
+                    ts_vehicles,
+                    "typesense",
+                    url,
+                    errors,
+                    max_vehicles,
+                )
 
-    # -- Try each page (pagination) -----------------------------------------
+    # Rendered browser pass: handles SPA inventories, infinite scroll,
+    # client-side search APIs, load-more buttons, and homepages that link to
+    # separate new/used inventory pages.
+    browser_vehicles, browser_source, browser_errors = _scrape_with_playwright(
+        url,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
+        max_vehicles=max_vehicles,
+    )
+    if browser_vehicles:
+        api_vehicles, _api_err = _try_api_endpoints(url)
+        if api_vehicles:
+            browser_vehicles.extend(api_vehicles)
+            browser_source = _combine_sources(browser_source, "api_discovery")
+        return _scrape_result(
+            browser_vehicles,
+            browser_source,
+            url,
+            errors,
+            max_vehicles,
+        )
+
+    # HTTP fallback for local/dev environments where Playwright or Chromium is
+    # not available. This keeps existing structured-data parsing useful, but the
+    # browser path above is the primary path for dealership websites.
+    static_vehicles, static_source, static_errors = _scrape_http_pages(
+        url,
+        first_page=(html0, final_url0) if not err0 else None,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
+        max_vehicles=max_vehicles,
+    )
+    errors.extend(static_errors)
+
+    if static_vehicles:
+        api_vehicles, _api_err = _try_api_endpoints(url)
+        if api_vehicles:
+            static_vehicles.extend(api_vehicles)
+            static_source = _combine_sources(static_source, "api_discovery")
+        return _scrape_result(
+            static_vehicles,
+            static_source,
+            url,
+            errors,
+            max_vehicles,
+        )
+
+    errors.extend(browser_errors)
+
+    api_vehicles, api_err = _try_api_endpoints(url)
+    if api_vehicles:
+        return _scrape_result(
+            api_vehicles,
+            "api_discovery",
+            url,
+            errors,
+            max_vehicles,
+        )
+    if api_err:
+        errors.append(api_err)
+
+    return _scrape_result([], "none", url, errors, max_vehicles)
+
+
+def _scrape_http_pages(
+    url: str,
+    *,
+    first_page: tuple[str, str] | None,
+    openai_api_key: str,
+    openai_model: str,
+    max_vehicles: int,
+) -> tuple[list[dict[str, Any]], str, list[str]]:
+    vehicles: list[dict[str, Any]] = []
+    errors: list[str] = []
+    source = "none"
     seen_keys: set[str] = set()
     pages_tried = 0
 
-    # Reuse the first page we already fetched
-    _prefetched: tuple[str, str] | None = (html0, final_url0) if not err0 else None
-
+    _prefetched = first_page
     current_url: str | None = url
     while current_url and pages_tried < MAX_PAGES and len(vehicles) < max_vehicles:
         if _prefetched is not None:
@@ -138,58 +291,18 @@ def scrape_inventory(
                 break
         pages_tried += 1
 
-        page_vehicles: list[dict[str, Any]] = []
-        page_source = "none"
-
-        # Check for direct feed (JSON / XML)
-        if _looks_like_json_feed(html):
-            feed_vehicles = _extract_json_feed(html, final_url)
-            if feed_vehicles:
-                page_vehicles = feed_vehicles
-                page_source = "json_feed"
-        elif _looks_like_xml_feed(html):
-            feed_vehicles = _extract_xml_feed(html, final_url)
-            if feed_vehicles:
-                page_vehicles = feed_vehicles
-                page_source = "xml_feed"
-
-        if not page_vehicles and BS4_AVAILABLE:
-            # Strategy 1: JSON-LD
-            ld_vehicles = _extract_json_ld(html)
-            if ld_vehicles:
-                page_vehicles = ld_vehicles
-                page_source = "json_ld"
-
-        if not page_vehicles and BS4_AVAILABLE:
-            # Strategy 2: Embedded window/page JSON
-            emb_vehicles = _extract_embedded_json(html, base_url=final_url)
-            if emb_vehicles:
-                page_vehicles = emb_vehicles
-                page_source = "embedded_json"
-
-        if not page_vehicles and BS4_AVAILABLE:
-            # Strategy 3: HTML card patterns
-            html_vehicles = _extract_html_patterns(html, base_url=final_url)
-            if html_vehicles:
-                page_vehicles = html_vehicles
-                page_source = "html_patterns"
-
-        # Strategy 4: AI fallback (first page only to avoid cost)
-        if not page_vehicles and pages_tried == 1 and openai_api_key and BS4_AVAILABLE:
-            ai_vehicles = _ai_extract(html, final_url, openai_api_key, openai_model)
-            if ai_vehicles:
-                page_vehicles = ai_vehicles
-                page_source = "ai"
+        page_vehicles, page_source = _extract_page_vehicles(
+            html,
+            final_url,
+            openai_api_key=openai_api_key,
+            openai_model=openai_model,
+            allow_ai=pages_tried == 1,
+        )
 
         if source == "none" and page_source != "none":
             source = page_source
 
-        # Deduplicate across pages
-        for v in page_vehicles:
-            key = _vehicle_key(v)
-            if key not in seen_keys:
-                seen_keys.add(key)
-                vehicles.append(v)
+        _append_unique_vehicles(vehicles, page_vehicles, seen_keys, max_vehicles)
 
         # Detect next-page URL (only for HTML-based scraping)
         if (
@@ -200,24 +313,574 @@ def scrape_inventory(
         else:
             current_url = None
 
-    # -- API endpoint discovery (last-resort if still empty) -----------------
-    if not vehicles:
-        api_vehicles, api_err = _try_api_endpoints(url)
-        if api_vehicles:
-            vehicles = api_vehicles
-            source = "api_discovery"
-        elif api_err:
-            errors.append(api_err)
+    return vehicles, source, errors
 
-    vehicles = [_normalise(v) for v in vehicles[:max_vehicles]]
+
+def _extract_page_vehicles(
+    html: str,
+    final_url: str,
+    *,
+    openai_api_key: str,
+    openai_model: str,
+    allow_ai: bool,
+    feeds_only: bool = False,
+) -> tuple[list[dict[str, Any]], str]:
+    page_vehicles: list[dict[str, Any]] = []
+    page_source = "none"
+
+    if _looks_like_json_feed(html):
+        feed_vehicles = _extract_json_feed(html, final_url)
+        if feed_vehicles:
+            return feed_vehicles, "json_feed"
+    if _looks_like_xml_feed(html):
+        feed_vehicles = _extract_xml_feed(html, final_url)
+        if feed_vehicles:
+            return feed_vehicles, "xml_feed"
+
+    if feeds_only:
+        return [], "none"
+
+    if BS4_AVAILABLE:
+        ld_vehicles = _extract_json_ld(html)
+        if ld_vehicles:
+            page_vehicles = ld_vehicles
+            page_source = "json_ld"
+
+    if not page_vehicles and BS4_AVAILABLE:
+        emb_vehicles = _extract_embedded_json(html, base_url=final_url)
+        if emb_vehicles:
+            page_vehicles = emb_vehicles
+            page_source = "embedded_json"
+
+    if not page_vehicles and BS4_AVAILABLE:
+        html_vehicles = _extract_html_patterns(html, base_url=final_url)
+        if html_vehicles:
+            page_vehicles = html_vehicles
+            page_source = "html_patterns"
+
+    if not page_vehicles and allow_ai and openai_api_key and BS4_AVAILABLE:
+        ai_vehicles = _ai_extract(html, final_url, openai_api_key, openai_model)
+        if ai_vehicles:
+            page_vehicles = ai_vehicles
+            page_source = "ai"
+
+    return page_vehicles, page_source
+
+
+def _scrape_with_playwright(
+    url: str,
+    *,
+    openai_api_key: str,
+    openai_model: str,
+    max_vehicles: int,
+) -> tuple[list[dict[str, Any]], str, list[str]]:
+    if not PLAYWRIGHT_AVAILABLE or sync_playwright is None:
+        return (
+            [],
+            "none",
+            [
+                "Playwright is not installed; install dependencies and run "
+                "`python -m playwright install chromium` to enable rendered scraping."
+            ],
+        )
+
+    vehicles: list[dict[str, Any]] = []
+    response_vehicles: list[dict[str, Any]] = []
+    errors: list[str] = []
+    sources: list[str] = []
+    seen_vehicle_keys: set[str] = set()
+    seen_pages: set[str] = set()
+    queued_pages: set[str] = {_canonical_page_url(url)}
+    page_queue: list[str] = [url]
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=list(_PLAYWRIGHT_BROWSER_ARGS),
+            )
+            try:
+                context = browser.new_context(
+                    user_agent=_USER_AGENT,
+                    viewport={"width": 1440, "height": 1200},
+                    locale="en-US",
+                    timezone_id="America/New_York",
+                )
+                page = context.new_page()
+
+                def capture_response(response: Any) -> None:
+                    found = _vehicles_from_playwright_response(response)
+                    if found:
+                        response_vehicles.extend(found)
+
+                page.on("response", capture_response)
+
+                while (
+                    page_queue
+                    and len(vehicles) < max_vehicles
+                    and len(seen_pages) < MAX_PAGES
+                ):
+                    current_url = page_queue.pop(0)
+                    canonical = _canonical_page_url(current_url)
+                    if canonical in seen_pages:
+                        continue
+                    seen_pages.add(canonical)
+
+                    ok, warning = _goto_playwright_page(page, current_url)
+                    if warning:
+                        errors.append(warning)
+                    if not ok:
+                        continue
+
+                    _expand_rendered_inventory(page)
+
+                    final_url = page.url
+                    html = page.content()
+
+                    ts_result = _try_typesense(
+                        html,
+                        final_url,
+                        max(1, max_vehicles - len(vehicles)),
+                    )
+                    if ts_result is not None:
+                        ts_vehicles, ts_err = ts_result
+                        if ts_err:
+                            errors.append(ts_err)
+                        if ts_vehicles:
+                            _append_unique_vehicles(
+                                vehicles,
+                                ts_vehicles,
+                                seen_vehicle_keys,
+                                max_vehicles,
+                            )
+                            sources.append("playwright_typesense")
+
+                    response_batch = response_vehicles[:]
+                    response_vehicles.clear()
+                    if response_batch:
+                        _append_unique_vehicles(
+                            vehicles,
+                            response_batch,
+                            seen_vehicle_keys,
+                            max_vehicles,
+                        )
+                        sources.append("playwright_api")
+
+                    state_vehicles = _extract_playwright_state(page, final_url)
+                    if state_vehicles:
+                        _append_unique_vehicles(
+                            vehicles,
+                            state_vehicles,
+                            seen_vehicle_keys,
+                            max_vehicles,
+                        )
+                        sources.append("playwright_state")
+
+                    page_vehicles, page_source = _extract_page_vehicles(
+                        html,
+                        final_url,
+                        openai_api_key=openai_api_key,
+                        openai_model=openai_model,
+                        allow_ai=len(seen_pages) == 1,
+                    )
+                    if page_vehicles:
+                        _append_unique_vehicles(
+                            vehicles,
+                            page_vehicles,
+                            seen_vehicle_keys,
+                            max_vehicles,
+                        )
+                        sources.append(f"playwright_{page_source}")
+
+                    if len(vehicles) >= max_vehicles:
+                        break
+
+                    next_url = _find_next_page(html, final_url)
+                    if next_url:
+                        _queue_inventory_page(
+                            next_url,
+                            page_queue,
+                            queued_pages,
+                            front=True,
+                        )
+
+                    for discovered_url in _discover_inventory_pages(html, final_url):
+                        if len(queued_pages) >= PLAYWRIGHT_DISCOVERY_LIMIT + len(
+                            seen_pages
+                        ):
+                            break
+                        _queue_inventory_page(
+                            discovered_url,
+                            page_queue,
+                            queued_pages,
+                        )
+            finally:
+                browser.close()
+    except Exception as exc:
+        return [], "none", [f"Playwright browser scrape failed: {exc}"]
+
+    return vehicles, _combine_sources(*sources), errors
+
+
+def _goto_playwright_page(page: Any, url: str) -> tuple[bool, str]:
+    warning = ""
+    try:
+        page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=PLAYWRIGHT_NAVIGATION_TIMEOUT_MS,
+        )
+    except PlaywrightTimeoutError:
+        warning = f"Playwright timed out waiting for initial load: {url}"
+    except PlaywrightError as exc:
+        return False, f"Playwright could not load {url}: {exc}"
+
+    try:
+        page.wait_for_load_state(
+            "networkidle",
+            timeout=PLAYWRIGHT_NETWORK_IDLE_TIMEOUT_MS,
+        )
+    except PlaywrightTimeoutError:
+        pass
+    except PlaywrightError:
+        pass
+
+    try:
+        page.wait_for_timeout(PLAYWRIGHT_SETTLE_MS)
+    except PlaywrightError:
+        return False, f"Playwright page became unavailable after loading {url}"
+
+    return True, warning
+
+
+def _expand_rendered_inventory(page: Any) -> None:
+    stable_rounds = 0
+    previous_signature = ""
+
+    for _step in range(PLAYWRIGHT_SCROLL_STEPS):
+        try:
+            page.evaluate(
+                "() => window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' })"
+            )
+            page.wait_for_timeout(PLAYWRIGHT_SETTLE_MS)
+            clicked = _click_load_more_control(page)
+            if clicked:
+                page.wait_for_timeout(PLAYWRIGHT_SETTLE_MS)
+                try:
+                    page.wait_for_load_state(
+                        "networkidle",
+                        timeout=PLAYWRIGHT_NETWORK_IDLE_TIMEOUT_MS,
+                    )
+                except PlaywrightTimeoutError:
+                    pass
+            signature = _rendered_inventory_signature(page)
+        except PlaywrightError:
+            return
+
+        if clicked or signature != previous_signature:
+            stable_rounds = 0
+        else:
+            stable_rounds += 1
+        previous_signature = signature
+        if stable_rounds >= 3:
+            break
+
+
+def _click_load_more_control(page: Any) -> str:
+    return str(
+        page.evaluate(
+            r"""
+            () => {
+              const matcher = /((load|show|view|see)\s+(all\s+)?(more|additional))|(more\s+(vehicles|inventory|results|cars|listings))|show\s+all/i;
+              const selectors = 'button,a,[role="button"],input[type="button"],input[type="submit"]';
+              const nodes = Array.from(document.querySelectorAll(selectors));
+              for (const el of nodes) {
+                const style = window.getComputedStyle(el);
+                const rect = el.getBoundingClientRect();
+                if (!rect.width || !rect.height || style.display === 'none' || style.visibility === 'hidden') continue;
+                if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+                const text = [
+                  el.innerText || '',
+                  el.value || '',
+                  el.getAttribute('aria-label') || '',
+                  el.getAttribute('title') || ''
+                ].join(' ').replace(/\s+/g, ' ').trim();
+                if (!text || !matcher.test(text)) continue;
+                el.scrollIntoView({ block: 'center', inline: 'center' });
+                el.click();
+                return text.slice(0, 80);
+              }
+              return '';
+            }
+            """
+        )
+        or ""
+    )
+
+
+def _rendered_inventory_signature(page: Any) -> str:
+    return str(
+        page.evaluate(
+            r"""
+            () => {
+              const text = document.body ? document.body.innerText || '' : '';
+              const vins = text.match(/\b[A-HJ-NPR-Z0-9]{17}\b/g) || [];
+              const vehicleTitles = text.match(/\b(19[6-9]\d|20[0-4]\d)\s+[A-Z][A-Za-z-]+\s+[A-Z0-9][A-Za-z0-9-]+/g) || [];
+              const cards = document.querySelectorAll([
+                '[data-vin]',
+                '[data-stock-number]',
+                '[data-vehicle-id]',
+                '[data-listing-id]',
+                '[class*="vehicle" i]',
+                '[class*="inventory" i]',
+                '[class*="listing" i]',
+                '[class*="srp" i]'
+              ].join(',')).length;
+              return [
+                document.body ? document.body.scrollHeight : 0,
+                cards,
+                vins.length,
+                vehicleTitles.length
+              ].join(':');
+            }
+            """
+        )
+        or ""
+    )
+
+
+def _vehicles_from_playwright_response(response: Any) -> list[dict[str, Any]]:
+    try:
+        status = int(response.status)
+    except Exception:
+        status = 0
+    if status >= 400:
+        return []
+
+    url = str(getattr(response, "url", "") or "")
+    lower_url = url.lower()
+    headers = getattr(response, "headers", {}) or {}
+    content_type = str(headers.get("content-type", "")).lower()
+    length = _int_or_none(headers.get("content-length")) or 0
+    inventory_url = any(marker in lower_url for marker in _INVENTORY_RESPONSE_MARKERS)
+
+    if "json" not in content_type and not inventory_url:
+        return []
+    if length and length > PLAYWRIGHT_MAX_RESPONSE_BYTES:
+        return []
+    if (
+        "json" in content_type
+        and not inventory_url
+        and length
+        and length > PLAYWRIGHT_SMALL_JSON_BYTES
+    ):
+        return []
+
+    try:
+        data = response.json()
+    except Exception:
+        try:
+            text = response.text()
+        except Exception:
+            return []
+        if not _looks_like_json_feed(text):
+            return []
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return []
+
+    return _walk_json_for_vehicles(data, url)
+
+
+def _extract_playwright_state(page: Any, base_url: str) -> list[dict[str, Any]]:
+    try:
+        state_blobs = page.evaluate(
+            r"""
+            () => {
+              const names = [
+                '__NEXT_DATA__',
+                '__NUXT__',
+                '__INITIAL_STATE__',
+                '__INITIAL_DATA__',
+                '__PRELOADED_STATE__',
+                '__REDUX_STATE__',
+                '__APOLLO_STATE__',
+                '__RELAY_STORE__',
+                '__remixContext',
+                'DDC'
+              ];
+              const blobs = [];
+              for (const name of names) {
+                const value = window[name];
+                if (value === undefined || value === null) continue;
+                try {
+                  const text = JSON.stringify(value);
+                  if (text && text.length < 8000000) blobs.push(text);
+                } catch (_err) {}
+              }
+              return blobs;
+            }
+            """
+        )
+    except PlaywrightError:
+        return []
+
+    vehicles: list[dict[str, Any]] = []
+    if not isinstance(state_blobs, list):
+        return vehicles
+    for blob in state_blobs:
+        try:
+            data = json.loads(str(blob))
+        except (json.JSONDecodeError, ValueError):
+            continue
+        vehicles.extend(_walk_json_for_vehicles(data, base_url))
+    return vehicles
+
+
+def _discover_inventory_pages(html: str, current_url: str) -> list[str]:
+    if not BS4_AVAILABLE:
+        return []
+    soup = BeautifulSoup(html, "html.parser")
+    current = urllib.parse.urlparse(current_url)
+    origin = f"{current.scheme}://{current.netloc}"
+    discovered: list[str] = []
+    seen: set[str] = set()
+
+    for anchor in soup.find_all("a", href=True):
+        href = str(anchor.get("href", "") or "").strip()
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+        absolute = urllib.parse.urljoin(current_url, href)
+        parsed = urllib.parse.urlparse(absolute)
+        if f"{parsed.scheme}://{parsed.netloc}" != origin:
+            continue
+        clean = urllib.parse.urlunparse(
+            (parsed.scheme, parsed.netloc, parsed.path, "", parsed.query, "")
+        )
+        if clean in seen:
+            continue
+        text = anchor.get_text(" ", strip=True)
+        if not _looks_like_inventory_category_link(text, clean):
+            continue
+        seen.add(clean)
+        discovered.append(clean)
+        if len(discovered) >= PLAYWRIGHT_DISCOVERY_LIMIT:
+            break
+
+    return discovered
+
+
+def _looks_like_inventory_category_link(text: str, url: str) -> bool:
+    parsed = urllib.parse.urlparse(url)
+    path = urllib.parse.unquote(parsed.path).lower()
+    label = f"{text} {path}".lower().replace("_", "-")
+
+    if any(marker in label for marker in _NON_INVENTORY_LINK_MARKERS):
+        return False
+    if not any(marker in label for marker in _INVENTORY_CATEGORY_MARKERS):
+        return False
+    if _VIN_RE.search(url.upper()):
+        return False
+    if re.search(r"/(?:new|used|certified|pre-owned)-\d{4}-", path):
+        return False
+    if re.search(r"\b(19[6-9]\d|20[0-4]\d)\b", path) and len(
+        [part for part in path.split("/") if part]
+    ) > 2:
+        return False
+    return True
+
+
+def _queue_inventory_page(
+    url: str,
+    queue: list[str],
+    queued_pages: set[str],
+    *,
+    front: bool = False,
+) -> None:
+    canonical = _canonical_page_url(url)
+    if canonical in queued_pages:
+        return
+    queued_pages.add(canonical)
+    if front:
+        queue.insert(0, url)
+    else:
+        queue.append(url)
+
+
+def _canonical_page_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    return urllib.parse.urlunparse(
+        (
+            parsed.scheme.lower(),
+            parsed.netloc.lower(),
+            parsed.path.rstrip("/") or "/",
+            "",
+            urllib.parse.urlencode(sorted(query)),
+            "",
+        )
+    )
+
+
+def _append_unique_vehicles(
+    target: list[dict[str, Any]],
+    vehicles: list[dict[str, Any]],
+    seen_keys: set[str],
+    max_vehicles: int,
+) -> None:
+    for vehicle in vehicles:
+        if not _looks_like_vehicle(vehicle):
+            continue
+        key = _vehicle_key(vehicle)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        target.append(vehicle)
+        if len(target) >= max_vehicles:
+            break
+
+
+def _scrape_result(
+    vehicles: list[dict[str, Any]],
+    source: str,
+    scraped_url: str,
+    errors: list[str],
+    max_vehicles: int,
+) -> dict[str, Any]:
+    normalised: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for raw in vehicles:
+        vehicle = _normalise(raw)
+        if not _looks_like_vehicle(vehicle):
+            continue
+        key = _vehicle_key(vehicle)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        normalised.append(vehicle)
+        if len(normalised) >= max_vehicles:
+            break
 
     return {
-        "vehicles": vehicles,
-        "total": len(vehicles),
-        "source": source,
-        "scraped_url": url,
+        "vehicles": normalised,
+        "total": len(normalised),
+        "source": source or "none",
+        "scraped_url": scraped_url,
         "errors": errors,
     }
+
+
+def _combine_sources(*sources: str) -> str:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for source in sources:
+        if not source or source == "none" or source in seen:
+            continue
+        seen.add(source)
+        ordered.append(source)
+    return "+".join(ordered) if ordered else "none"
 
 
 # ---------------------------------------------------------------------------
@@ -282,17 +945,23 @@ def _walk_json_for_vehicles(
         return []
     vehicles: list[dict[str, Any]] = []
     if isinstance(data, list):
-        for item in data[:500]:
-            if isinstance(item, dict) and _looks_like_vehicle(item):
-                vehicles.append(_map_generic_json_vehicle(item, base_url))
+        for item in data[:MAX_VEHICLES]:
+            if isinstance(item, dict):
+                mapped = _map_generic_json_vehicle(item, base_url)
+                if _looks_like_vehicle(mapped):
+                    vehicles.append(mapped)
+                else:
+                    vehicles.extend(_walk_json_for_vehicles(item, base_url, depth + 1))
             elif isinstance(item, (dict, list)):
                 vehicles.extend(_walk_json_for_vehicles(item, base_url, depth + 1))
         return vehicles
     if isinstance(data, dict):
         # Check if the dict itself is a vehicle
-        if _looks_like_vehicle(data):
-            return [_map_generic_json_vehicle(data, base_url)]
+        mapped = _map_generic_json_vehicle(data, base_url)
+        if _looks_like_vehicle(mapped):
+            return [mapped]
         # Look for known container keys
+        known_container_ids: set[int] = set()
         for key in (
             "vehicles",
             "inventory",
@@ -309,13 +978,30 @@ def _walk_json_for_vehicles(
             "VehicleList",
             "cars",
             "Cars",
+            "docs",
+            "hits",
+            "records",
+            "rows",
+            "inventoryItems",
+            "inventory_items",
+            "vehicleItems",
+            "vehicle_items",
+            "vehicleResults",
+            "vehicle_results",
+            "searchResults",
+            "search_results",
+            "srpVehicles",
+            "srp_vehicles",
         ):
             if key in data and isinstance(data[key], (list, dict)):
+                known_container_ids.add(id(data[key]))
                 found = _walk_json_for_vehicles(data[key], base_url, depth + 1)
                 if found:
-                    return found
+                    vehicles.extend(found)
         # Recurse into all values
         for val in data.values():
+            if id(val) in known_container_ids:
+                continue
             if isinstance(val, (dict, list)):
                 found = _walk_json_for_vehicles(val, base_url, depth + 1)
                 if found:
@@ -339,7 +1025,7 @@ def _extract_xml_feed(html: str, base_url: str) -> list[dict[str, Any]]:
         re.DOTALL | re.IGNORECASE,
     )
 
-    for block in vehicle_blocks[:300]:
+    for block in vehicle_blocks[:MAX_VEHICLES]:
         v: dict[str, Any] = {}
         for tag, field in [
             ("vin", "vin"),
@@ -754,11 +1440,26 @@ def _parse_card(card: Any, base_url: str) -> dict[str, Any] | None:
     # Images
     images = []
     for img in card.find_all("img"):
-        src = img.get("src") or img.get("data-src") or img.get("data-lazy-src") or ""
-        if src and "http" in src and not src.endswith((".gif", ".ico")):
-            images.append(src)
+        src = (
+            img.get("src")
+            or img.get("data-src")
+            or img.get("data-lazy-src")
+            or img.get("data-original")
+            or img.get("data-url")
+            or ""
+        )
+        if not src and img.get("srcset"):
+            src = _first_srcset_url(str(img.get("srcset") or ""))
+        if not src and img.get("data-srcset"):
+            src = _first_srcset_url(str(img.get("data-srcset") or ""))
+        if src:
+            absolute_src = urllib.parse.urljoin(base_url, str(src))
+            if absolute_src.lower().startswith(("http://", "https://")) and not (
+                urllib.parse.urlparse(absolute_src).path.lower().endswith((".gif", ".ico"))
+            ):
+                images.append(absolute_src)
     if images:
-        v["images"] = images[:8]
+        v["images"] = images[:40]
 
     # Link
     a_tag = card.find("a", href=True)
@@ -1277,42 +1978,69 @@ def _find_next_page(html: str, current_url: str) -> str | None:
 # Maps common field names from arbitrary JSON to our normalised fields
 _FIELD_MAP: dict[str, str] = {
     "vin": "vin",
+    "vinnumber": "vin",
+    "vinno": "vin",
     "vehicleidentificationnumber": "vin",
     "year": "year",
     "modelyear": "year",
+    "yearmodel": "year",
     "make": "make",
+    "makename": "make",
     "manufacturer": "make",
     "model": "model",
+    "modelname": "model",
     "trim": "trim",
+    "trimname": "trim",
     "trimlevel": "trim",
     "trim_level": "trim",
+    "series": "trim",
     "bodystyle": "body_style",
     "body_style": "body_style",
+    "body": "body_style",
     "bodytype": "body_style",
     "body_type": "body_style",
+    "vehicletype": "body_style",
     "style": "body_style",
     "price": "price",
     "askingprice": "price",
+    "dealerprice": "price",
+    "displayprice": "price",
+    "finalprice": "price",
     "saleprice": "price",
+    "sellingprice": "price",
     "internetprice": "price",
     "listprice": "price",
+    "ourprice": "price",
+    "primaryprice": "price",
+    "retailprice": "price",
     "msrp": "price",
     "mileage": "mileage",
     "odometer": "mileage",
+    "odometerreading": "mileage",
+    "odometervalue": "mileage",
     "miles": "mileage",
     "exteriorcolor": "ext_color",
     "exterior_color": "ext_color",
+    "exterior": "ext_color",
+    "exteriorcolorname": "ext_color",
     "extcolor": "ext_color",
     "color": "ext_color",
     "interiorcolor": "int_color",
     "interior_color": "int_color",
+    "interior": "int_color",
+    "interiorcolorname": "int_color",
     "intcolor": "int_color",
     "stocknumber": "stock_number",
     "stock_number": "stock_number",
+    "stockno": "stock_number",
+    "stocknum": "stock_number",
     "stock": "stock_number",
     "id": "external_id",
     "vehicleid": "external_id",
+    "vehicle_id": "external_id",
     "listingid": "external_id",
+    "listing_id": "external_id",
+    "objectid": "external_id",
     "transmission": "transmission",
     "drivetrain": "drivetrain",
     "drivetype": "drivetrain",
@@ -1323,12 +2051,20 @@ _FIELD_MAP: dict[str, str] = {
     "comments": "description",
     "url": "detail_url",
     "detailurl": "detail_url",
+    "permalink": "detail_url",
+    "vehicleurl": "detail_url",
+    "vdpurl": "detail_url",
     "link": "detail_url",
     "href": "detail_url",
     "image": "images",
     "imageurl": "images",
+    "mainphoto": "images",
     "photo": "images",
+    "photourl": "images",
+    "photourls": "images",
     "photos": "images",
+    "thumbnail": "images",
+    "thumbnailurl": "images",
     "images": "images",
     "imageurls": "images",
 }
@@ -1340,14 +2076,9 @@ def _map_generic_json_vehicle(data: dict[str, Any], base_url: str) -> dict[str, 
         mapped = _FIELD_MAP.get(key.lower().replace("-", "").replace("_", ""))
         if mapped:
             if mapped == "images":
-                if isinstance(val, list):
-                    v["images"] = [
-                        str(i)
-                        for i in val
-                        if isinstance(i, str) and i.startswith("http")
-                    ][:8]
-                elif isinstance(val, str) and val.startswith("http"):
-                    v["images"] = [val]
+                images = _coerce_image_urls(val, base_url)
+                if images:
+                    v["images"] = images[:40]
             elif mapped in ("year", "price", "mileage"):
                 v[mapped] = _int_or_none(val)
             else:
@@ -1370,6 +2101,52 @@ def _map_generic_json_vehicle(data: dict[str, Any], base_url: str) -> dict[str, 
             break
 
     return v
+
+
+def _coerce_image_urls(value: Any, base_url: str, depth: int = 0) -> list[str]:
+    if depth > 4:
+        return []
+
+    if isinstance(value, str):
+        url = value.strip()
+        if not url:
+            return []
+        if url.startswith("//"):
+            url = "https:" + url
+        elif url.startswith(("/", "./", "../")):
+            url = urllib.parse.urljoin(base_url, url)
+        if url.lower().startswith(("http://", "https://")):
+            return [url]
+        return []
+
+    if isinstance(value, list):
+        images: list[str] = []
+        for item in value[:80]:
+            images.extend(_coerce_image_urls(item, base_url, depth + 1))
+        return images
+
+    if isinstance(value, dict):
+        images = []
+        for key, nested in value.items():
+            normalized = key.lower().replace("-", "").replace("_", "")
+            if normalized in {
+                "href",
+                "image",
+                "imageurl",
+                "large",
+                "main",
+                "mainphoto",
+                "photo",
+                "photourl",
+                "src",
+                "thumbnail",
+                "thumbnailurl",
+                "url",
+            }:
+                images.extend(_coerce_image_urls(nested, base_url, depth + 1))
+        return images
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -1460,6 +2237,14 @@ def _int_or_none(val: Any) -> int | None:
 
 def _parse_int(val: str) -> int | None:
     return _int_or_none(val.replace(",", ""))
+
+
+def _first_srcset_url(srcset: str) -> str:
+    for candidate in srcset.split(","):
+        url = candidate.strip().split(" ", 1)[0]
+        if url:
+            return url
+    return ""
 
 
 def _rank_vehicle_images(images: list[Any], *, limit: int = 12) -> list[str]:

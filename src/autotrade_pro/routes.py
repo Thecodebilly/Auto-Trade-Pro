@@ -611,7 +611,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @bp.get("/api/dealers/<dealer_slug>/inventory")
     def public_inventory(dealer_slug: str) -> Response:
         dealer = _dealer_or_404(config, dealer_slug)
-        limit = min(int(request.args.get("limit", 200)), MAX_VEHICLES)
+        limit = min(int(request.args.get("limit", MAX_VEHICLES)), MAX_VEHICLES)
         offset = int(request.args.get("offset", 0))
         removed_legacy = remove_legacy_internal_inventory(
             config.database_path, dealer["id"]
@@ -647,7 +647,7 @@ def create_blueprint(config: AppConfig) -> Blueprint:
     @bp.post("/api/dealers/<dealer_slug>/inventory/refresh")
     def public_inventory_refresh(dealer_slug: str) -> Response:
         dealer = _dealer_or_404(config, dealer_slug)
-        limit = min(int(request.args.get("limit", 200)), MAX_VEHICLES)
+        limit = min(int(request.args.get("limit", MAX_VEHICLES)), MAX_VEHICLES)
         offset = int(request.args.get("offset", 0))
         remove_legacy_internal_inventory(config.database_path, dealer["id"])
         sources = _live_inventory_sources(config, dealer["id"])
